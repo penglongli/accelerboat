@@ -1,6 +1,6 @@
 # accelerboat
 
-![logo](./logo/logo.png)
+![logo](logo/logo144x144.png)
 
 ---
 
