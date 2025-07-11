@@ -4,13 +4,18 @@
 
 package options
 
-// ImageProxyOption defines the option of image-proxy
-type ImageProxyOption struct {
+// AccelerBoatOption defines the option of accelerboat
+type AccelerBoatOption struct {
 	Address     string `json:"address"`
 	HTTPPort    int64  `json:"httpPort"`
 	HTTPSPort   int64  `json:"httpsPort"`
 	MetricPort  int64  `json:"metricPort"`
 	TorrentPort int64  `json:"torrentPort"`
+
+	LogDir        string `json:"logDir"`
+	LogMaxSize    int    `json:"logMaxSize"`
+	LogMaxBackups int    `json:"logMaxBackups"`
+	LogMaxAge     int    `json:"logMaxAge"`
 
 	// DisableTorrent disable torrent file transfer
 	DisableTorrent bool `json:"disableTorrent"`
@@ -22,7 +27,7 @@ type ImageProxyOption struct {
 	// TorrentUploadLimit upload speed limit for torrent seeds. 0 means no limit.
 	TorrentUploadLimit int64 `json:"torrentUploadLimit"`
 	// TorrentDownloadLimit download speed limit for torrent seeds. 0 means no limit.
-	TorrentDownloadLimit int64 `json:"TorrentDownloadLimit"`
+	TorrentDownloadLimit int64 `json:"torrentDownloadLimit"`
 
 	// StoragePath storage directory for Layers downloaded from the source repository.
 	// The integrity of the files under it cannot be guaranteed.
