@@ -7,7 +7,7 @@ package logger
 import (
 	"context"
 	"fmt"
-	"strings"
+	"os"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -33,6 +33,7 @@ func InitLogger(op *Option) {
 		MaxBackups: op.MaxBackups,
 		Compress:   true,
 	}
+	syncer := zapcore.NewMultiWriteSyncer(zapcore.AddSync(lumberjackLogger), zapcore.AddSync(os.Stdout))
 	core := zapcore.NewCore(
 		zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
 			TimeKey:      "time",
@@ -43,28 +44,52 @@ func InitLogger(op *Option) {
 			EncodeLevel:  zapcore.CapitalLevelEncoder,
 			EncodeCaller: zapcore.ShortCallerEncoder,
 		}),
-		zapcore.AddSync(lumberjackLogger),
+		syncer,
 		zap.InfoLevel,
 	)
-	zapLogger = zap.New(core, zap.AddCaller())
+	zapLogger = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 }
 
 func Infof(format string, args ...interface{}) {
-	zapLogger.Info(format, args)
+	msg := fmt.Sprintf(format, args...)
+	zapLogger.Info(msg)
 }
 
 func InfoContextf(ctx context.Context, format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	fields := contextFields(ctx)
+	zapLogger.Info(msg, fields...)
+}
 
+func Warnf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	zapLogger.Warn(msg)
 }
 
 func WarnContextf(ctx context.Context, format string, args ...interface{}) {
-	glog.WarningDepth(1, fmt.Sprintf(format+getKeyValueFromCtx(ctx), args...))
+	msg := fmt.Sprintf(format, args...)
+	fields := contextFields(ctx)
+	zapLogger.Warn(msg, fields...)
+}
+
+func Errorf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	zapLogger.Error(msg)
 }
 
 func ErrorContextf(ctx context.Context, format string, args ...interface{}) {
-	glog.ErrorDepth(1, fmt.Sprintf(format+getKeyValueFromCtx(ctx), args...))
+	msg := fmt.Sprintf(format, args...)
+	fields := contextFields(ctx)
+	zapLogger.Error(msg, fields...)
+}
+
+func Fatalf(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	zapLogger.Fatal(msg)
 }
 
 func FatalContextf(ctx context.Context, format string, args ...interface{}) {
-	glog.FatalDepth(1, fmt.Sprintf(format+getKeyValueFromCtx(ctx), args...))
+	msg := fmt.Sprintf(format, args...)
+	fields := contextFields(ctx)
+	zapLogger.Fatal(msg, fields...)
 }

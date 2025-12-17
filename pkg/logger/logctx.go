@@ -6,6 +6,9 @@ package logger
 
 import (
 	"context"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 type ContextKey string
@@ -24,12 +27,33 @@ func WithContextFields(ctx context.Context, fields ...string) context.Context {
 		tags[key] = value
 	}
 
-	contextMap, ok := ctx.Value(ContextKeyMessage).(map[string]string)
-	if !ok {
-		contextMap = make(map[string]string)
+	zapFields := contextFields(ctx)
+	for i := range zapFields {
+		fd := zapFields[i]
+		v, ok := tags[fd.Key]
+		if !ok {
+			continue
+		}
+		fd.String = v
+		fd.Type = zapcore.StringType
+		delete(tags, fd.Key)
 	}
 	for k, v := range tags {
-		contextMap[k] = v
+		zapFields = append(zapFields, zapcore.Field{
+			Key:    k,
+			Type:   zapcore.StringType,
+			String: v,
+		})
 	}
-	return context.WithValue(ctx, ContextKeyMessage, contextMap)
+
+	return context.WithValue(ctx, ContextKeyMessage, zapFields)
+}
+
+func contextFields(ctx context.Context) []zap.Field {
+	if val := ctx.Value(ContextKeyMessage); val != nil {
+		if fields, ok := val.([]zap.Field); ok {
+			return fields
+		}
+	}
+	return nil
 }

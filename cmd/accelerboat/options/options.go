@@ -21,6 +21,7 @@ type AccelerBoatOption struct {
 	DisableTorrent bool `json:"disableTorrent"`
 	// EnableContainerd enable containerd image discovery
 	EnableContainerd bool `json:"enableContainerd"`
+
 	// TorrentThreshold the threshold for Torrent file transfer. Torrent transfer is used
 	// only when the threshold is exceeded.
 	TorrentThreshold int64 `json:"torrentThreshold"`
@@ -28,6 +29,8 @@ type AccelerBoatOption struct {
 	TorrentUploadLimit int64 `json:"torrentUploadLimit"`
 	// TorrentDownloadLimit download speed limit for torrent seeds. 0 means no limit.
 	TorrentDownloadLimit int64 `json:"torrentDownloadLimit"`
+	// TorrentAnnounce defines the announce address for torrent
+	TorrentAnnounce string `json:"torrentAnnounce" usage:"the announce of torrent"`
 
 	// StoragePath storage directory for Layers downloaded from the source repository.
 	// The integrity of the files under it cannot be guaranteed.
@@ -44,6 +47,9 @@ type AccelerBoatOption struct {
 	// EventFile defines the file to store events
 	EventFile string `json:"eventFile"`
 
+	// PreferConfig 配置优先策略，用户可以指定 Master，以及指定某些节点作为优选的角色
+	PreferConfig PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
+
 	// CleanConfig Configure cleanup policies, allowing users to configure cleanup time,
 	// disk usage thresholds, and how many days of data to retain
 	CleanConfig CleanConfig `json:"cleanConfig" usage:"clean config"`
@@ -52,14 +58,11 @@ type AccelerBoatOption struct {
 	RedisAddress  string `json:"redisAddress"`
 	RedisPassword string `json:"redisPassword"`
 
-	// TorrentAnnounce defines the announce address for torrent
-	TorrentAnnounce string `json:"torrentAnnounce" usage:"the announce of torrent"`
-
 	// ServiceDiscovery defines the discovery between all nodes
 	ServiceDiscovery *ServiceDiscovery `json:"serviceDiscovery"`
 
-	ExternalConfigPath string         `json:"externalConfigPath" usage:"external config path"`
-	ExternalConfig     ExternalConfig `json:"-"`
+	// ExternalConfig defines the external config
+	ExternalConfig ExternalConfig `json:"externalConfig"`
 }
 
 // ProxyKeyCert defines the key/cert for proxy host
@@ -90,6 +93,9 @@ type RegistryMapping struct {
 	CorrectPass string `json:"-"`
 }
 
+// LocalhostCert defines localhost proxy
+const LocalhostCert = "localhost"
+
 // ExternalConfig defines the external config
 type ExternalConfig struct {
 	Enable            bool                     `json:"enable"`
@@ -99,49 +105,16 @@ type ExternalConfig struct {
 	RegistryMappings  []*RegistryMapping       `json:"registryMappings"`
 }
 
-const (
-	KubernetesType = "kubernetes"
-	EtcdType       = "etcd"
-)
-
 type ServiceDiscovery struct {
-	DiscoveryType string               `json:"discoveryType"`
-	Kubernetes    *DiscoveryKubernetes `json:"kubernetes"`
-	Etcd          *DiscoveryEtcd       `json:"etcd"`
+	ServiceNamespace string   `json:"serviceNamespace"`
+	ServiceName      string   `json:"serviceName"`
+	Endpoints        []string `json:"-"`
 }
 
-type DiscoveryKubernetes struct {
-	InCluster     bool   `json:"inCluster"`
-	ClusterServer string `json:"clusterServer"`
-	BearerToken   string `json:"bearerToken"`
-
-	ServiceNamespace string `json:"serviceNamespace"`
-	ServiceName      string `json:"serviceName"`
-
-	PreferConfig *KubernetesPreferConfig `json:"preferConfig"`
-
-	Endpoints []string `json:"-"`
-}
-
-// KubernetesPreferConfig defines the prefer config
-type KubernetesPreferConfig struct {
-	MasterIP    string            `json:"masterIP"`
-	PreferNodes PreferNodesConfig `json:"preferNodes"`
-}
-
-type DiscoveryEtcd struct {
-	Addresses []string `json:"addresses"`
-	CACert    string   `json:"cacert"`
-	Cert      string   `json:"cert"`
-	Key       string   `json:"key"`
-	Password  string   `json:"password"`
-
-	PreferConfig *EtcdPreferConfig `json:"preferConfig"`
-}
-
-type EtcdPreferConfig struct {
-	MasterIP    string   `json:"masterIP"`
-	PreferNodes []string `json:"preferNodes"`
+// PreferConfig defines the prefer config
+type PreferConfig struct {
+	MasterIP    string            `json:"masterIP" value:"" usage:"manually specify the master node"`
+	PreferNodes PreferNodesConfig `json:"preferNodes" value:"" usage:"assume the master role and download tasks"`
 }
 
 // CleanConfig defines the clean config
