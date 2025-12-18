@@ -138,3 +138,38 @@ const (
 	// RegistryMirror registry mirror
 	RegistryMirror ProxyType = "RegistryMirror"
 )
+
+var (
+	singleton = new(AccelerBoatOption)
+)
+
+// GlobalOptions returns the global option
+func GlobalOptions() *AccelerBoatOption {
+	return singleton
+}
+
+// FilterRegistryMapping filter registry mapping
+func (o *AccelerBoatOption) FilterRegistryMapping(proxyHost string, proxyType ProxyType) *RegistryMapping {
+	// 针对 ProxyHost 为空，设置其默认使用 docker.io
+	if proxyHost == "" {
+		return &o.ExternalConfig.DockerHubRegistry
+	}
+	for _, m := range o.ExternalConfig.RegistryMappings {
+		switch proxyType {
+		case RegistryMirror:
+			// for containerd
+			if proxyHost == m.OriginalHost {
+				return m
+			}
+			// for dockerd
+			if proxyHost == m.ProxyHost {
+				return m
+			}
+		case DomainProxy:
+			if proxyHost == m.ProxyHost {
+				return m
+			}
+		}
+	}
+	return nil
+}

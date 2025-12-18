@@ -18,8 +18,8 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
-	"github.com/penglongli/accelerboat/pkg/apiclient"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/middleware"
 )
 
@@ -47,8 +47,13 @@ func (s *AccelerboatServer) initHTTPRouter() {
 	ginSvr.UseRawPath = true
 	gin.SetMode(gin.ReleaseMode)
 	ginSvr.Use(middleware.CommonMiddleware())
-	s.ginSvr = ginSvr
 	pprof.Register(ginSvr)
+	ch := customapi.NewCustomHandler(s.op)
+	ch.Register(ginSvr)
+	ginSvr.NoRoute(func(c *gin.Context) {
+		s.ServeHTTP(c.Writer, c.Request)
+	})
+	s.ginSvr = ginSvr
 }
 
 func (s *AccelerboatServer) Run() error {
@@ -129,53 +134,23 @@ func (s *AccelerboatServer) httpError(ctx context.Context, rw http.ResponseWrite
 	http.Error(rw, errMsg, http.StatusBadRequest)
 }
 
+const (
+	// LocalHost defines the localhost
+	LocalHost = "localhost"
+	// LocalHostAddr defines the localhost address
+	LocalHostAddr = "127.0.0.1"
+)
+
 func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
-	req = apiclient.SetContext(req)
 	ctx := req.Context()
-	if !strings.Contains(req.RequestURI, "/custom_api/recorder") {
-		logger.InfoContextf(ctx, "received request: %s, %s%s", req.Method, req.Host, req.URL.String())
-	}
-
-	switch {
-	case strings.HasPrefix(req.RequestURI, "/debug/"):
-		s.routerPprof.ServeHTTP(rw, req)
-		return
-	case strings.HasPrefix(req.RequestURI, "/custom_api/"):
-		s.routerCustomAPI.ServeHTTP(rw, req)
-		return
-	}
-
 	hosts := strings.Split(req.Host, ":")
 	if len(hosts) != 2 {
 		s.httpError(ctx, rw, fmt.Sprintf("invalid host: %s", req.Host), http.StatusBadRequest)
 		return
 	}
-	var proxyHost string
-	var proxyType options.ProxyType
-	var requestURI = req.RequestURI
-	switch hosts[0] {
-	// 如果传递过来的 Host 是本地地址，则认为用户使用的是 RegistryMirror 模式
-	case LocalHost, LocalHostAddr:
-		proxyType = options.RegistryMirror
-
-		queryNS := req.URL.Query().Get("ns")
-		if queryNS != "" {
-			// for containerd
-			proxyHost = queryNS
-		} else {
-			match := proxyHostRegex.FindStringSubmatch(req.RequestURI)
-			// 如果 match[1] 未从 options 中查找到对应配置，则认为其 proxyHost 就是空的
-			if len(match) > 1 && s.op.FilterRegistryMapping(match[1], proxyType) != nil {
-				proxyHost = match[1]
-				requestURI = strings.Replace(req.RequestURI, "/"+proxyHost+"/", "/", 1)
-			}
-		}
-	// 传递过来的 Host 是个域名地址，则认为用户使用的是域名代理模式
-	default:
-		proxyType = options.DomainProxy
-		proxyHost = hosts[0]
-	}
-	// logctx.Infof(ctx, "parse request, proxyType: %s, proxyHost: %s", string(proxyType), proxyHost)
+	proxyType := options.DomainProxy
+	proxyHost := hosts[0]
+	requestURI := req.RequestURI
 
 	upstreamProxy := proxy.NewUpstreamProxy(proxyHost, proxyType, s.torrentHandler)
 	if upstreamProxy == nil {

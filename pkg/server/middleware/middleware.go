@@ -7,11 +7,13 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/server/customapi"
 )
 
 const (
@@ -33,6 +35,10 @@ func CommonMiddleware() func(ctx *gin.Context) {
 		ctx.Request = ctx.Request.WithContext(reqCtx)
 		ctx.Writer.Header().Set(RequestIDHeaderKey, requestID)
 		ctx.Request.Header.Set(RequestIDHeaderKey, requestID)
+		req := ctx.Request
+		if !strings.Contains(req.RequestURI, customapi.APIRecorder) {
+			logger.InfoContextf(reqCtx, "received request: %s, %s%s", req.Method, req.Host, req.URL.String())
+		}
 		ctx.Next()
 	}
 }

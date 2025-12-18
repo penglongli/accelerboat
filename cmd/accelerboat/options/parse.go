@@ -10,9 +10,6 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 )
@@ -26,55 +23,55 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = json.Unmarshal(bs, op); err != nil {
 		return nil, errors.Wrapf(err, "unmarshal config failed")
 	}
-
+	return op, nil
 }
 
 const (
 	defaultLogDir = "/data/accelerboat/logs"
 )
 
-func (op *AccelerBoatOption) checkLogConfig() error {
-	if op.LogDir == "" {
-		op.LogDir = defaultLogDir
+func (o *AccelerBoatOption) checkLogConfig() error {
+	if o.LogDir == "" {
+		o.LogDir = defaultLogDir
 	}
-	if err := os.MkdirAll(op.LogDir, 0755); err != nil {
-		return errors.Wrapf(err, "create log_dir '%s' failed", op.LogDir)
+	if err := os.MkdirAll(o.LogDir, 0755); err != nil {
+		return errors.Wrapf(err, "create log_dir '%s' failed", o.LogDir)
 	}
-	if op.LogMaxSize <= 0 {
-		op.LogMaxSize = 100
+	if o.LogMaxSize <= 0 {
+		o.LogMaxSize = 100
 	}
-	if op.LogMaxBackups <= 0 {
-		op.LogMaxBackups = 10
+	if o.LogMaxBackups <= 0 {
+		o.LogMaxBackups = 10
 	}
-	if op.LogMaxAge <= 0 {
-		op.LogMaxAge = 30
+	if o.LogMaxAge <= 0 {
+		o.LogMaxAge = 30
 	}
 	logger.InitLogger(&logger.Option{
-		Filename:   filepath.Join(op.LogDir, "accelerboat.log"),
-		MaxSize:    op.LogMaxSize,
-		MaxAge:     op.LogMaxAge,
-		MaxBackups: op.LogMaxBackups,
+		Filename:   filepath.Join(o.LogDir, "accelerboat.log"),
+		MaxSize:    o.LogMaxSize,
+		MaxAge:     o.LogMaxAge,
+		MaxBackups: o.LogMaxBackups,
 	})
 	return nil
 }
 
-func (op *AccelerBoatOption) checkFilePath() error {
-	if err := os.MkdirAll(op.TransferPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", op.TransferPath)
+func (o *AccelerBoatOption) checkFilePath() error {
+	if err := os.MkdirAll(o.TransferPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.TransferPath)
 	}
-	if err := os.MkdirAll(op.StoragePath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", op.StoragePath)
+	if err := os.MkdirAll(o.StoragePath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StoragePath)
 	}
-	if err := os.MkdirAll(op.SmallFilePath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", op.SmallFilePath)
+	if err := os.MkdirAll(o.SmallFilePath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.SmallFilePath)
 	}
 	// should remove torrentPath to avoid some cached files
-	_ = os.RemoveAll(op.TorrentPath)
-	if err := os.MkdirAll(op.TorrentPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", op.TorrentPath)
+	_ = os.RemoveAll(o.TorrentPath)
+	if err := os.MkdirAll(o.TorrentPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.TorrentPath)
 	}
-	if err := os.MkdirAll(op.OCIPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", op.OCIPath)
+	if err := os.MkdirAll(o.OCIPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.OCIPath)
 	}
 	return nil
 }
@@ -86,21 +83,22 @@ const (
 	TwoHundredMB int64 = 209715200
 )
 
-func (op *AccelerBoatOption) checkTorrentConfig() error {
-	if op.TorrentThreshold < TwoHundredMB {
-		op.TorrentThreshold = TwoHundredMB
+func (o *AccelerBoatOption) checkTorrentConfig() error {
+	if o.TorrentThreshold < TwoHundredMB {
+		o.TorrentThreshold = TwoHundredMB
 	}
-	if op.TorrentUploadLimit > 0 && op.TorrentUploadLimit < 1048576 {
-		return errors.Errorf("upload limit '%d' too small, must >= 1048576(1MB/s)", op.TorrentUploadLimit)
+	if o.TorrentUploadLimit > 0 && o.TorrentUploadLimit < 1048576 {
+		return errors.Errorf("upload limit '%d' too small, must >= 1048576(1MB/s)", o.TorrentUploadLimit)
 	}
-	if op.TorrentDownloadLimit > 0 && op.TorrentDownloadLimit < 1048576 {
-		return errors.Errorf("download limit '%d' too small, must >= 1048576(1MB/s)", op.TorrentUploadLimit)
+	if o.TorrentDownloadLimit > 0 && o.TorrentDownloadLimit < 1048576 {
+		return errors.Errorf("download limit '%d' too small, must >= 1048576(1MB/s)", o.TorrentUploadLimit)
 	}
-	if op.DisableTorrent {
-
+	if o.DisableTorrent {
+		return nil
 	}
+	return nil
 }
 
-func (op *AccelerBoatOption) checkCleanConfig() {
+func (o *AccelerBoatOption) checkCleanConfig() {
 
 }
