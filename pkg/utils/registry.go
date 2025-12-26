@@ -13,15 +13,103 @@
 package utils
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 )
 
+func ChangeAuthenticateHeader(resp *http.Response, proxyHost string) {
+	v := resp.Header.Get("Www-Authenticate")
+	if v == "" {
+		return
+	}
+	realm, scope, service := ParseAuthRequest(v)
+	if realm == "" {
+		return
+	}
+	realm = fmt.Sprintf("%s/service/token", proxyHost)
+	newV := BuildAuthenticateHeader(realm, scope, service)
+	resp.Header.Set("Www-Authenticate", newV)
+}
+
+func BuildAuthenticateHeader(realm, service, scope string) string {
+	result := make([]string, 0)
+	result = append(result, fmt.Sprintf(`Bearer realm="%s"`, realm))
+	if service != "" {
+		result = append(result, fmt.Sprintf(`service="%s"`, service))
+	}
+	if scope != "" {
+		result = append(result, fmt.Sprintf(`scope="%s"`, scope))
+	}
+	return strings.Join(result, ",")
+}
+
+// ParseAuthRequest parse the auth request header
+func ParseAuthRequest(authHeader string) (string, string, string) {
+	authenticate := strings.TrimSpace(authHeader)
+	if authenticate == "" || !strings.HasPrefix(authenticate, "Bearer realm") {
+		return "", "", ""
+	}
+	return parseAuthenticateHeader(authenticate)
+}
+
+var (
+	realmRegex   = regexp.MustCompile(`realm="(.*?)"`)
+	serviceRegex = regexp.MustCompile(`service="(.*?)"`)
+	scopeRegex   = regexp.MustCompile(`scope="(.*?)"`)
+)
+
+func parseAuthenticateHeader(header string) (string, string, string) {
+	realm := realmRegex.FindStringSubmatch(header)
+	service := serviceRegex.FindStringSubmatch(header)
+	scope := scopeRegex.FindStringSubmatch(header)
+
+	var realmValue, serviceValue, scopeValue string
+	if len(realm) > 1 {
+		realmValue = realm[1]
+	}
+	if len(service) > 1 {
+		serviceValue = service[1]
+	}
+	if len(scope) > 1 {
+		scopeValue = scope[1]
+	}
+	return realmValue, serviceValue, scopeValue
+}
+
 var (
 	manifestUriRegexp = regexp.MustCompile(`^/v[1-2]/(.*)/manifests/(.*)`)
 	blobUriRegexp     = regexp.MustCompile(`^/v[1-2]/(.*)/blobs/sha256:([a-z0-9A-Z]{64})$`)
 )
+
+func IsServiceToken(r *http.Request) (string, string, bool) {
+	if r.Method != http.MethodGet {
+		return "", "", false
+	}
+	if r.URL.Path != "/service/token" {
+		return "", "", false
+	}
+	service := r.URL.Query().Get("service")
+	scope := r.URL.Query().Get("scope")
+	return service, scope, true
+}
+
+func IsHeadImageDigest(r *http.Request) (string, string, bool) {
+	if r.Method != http.MethodHead {
+		return "", "", false
+	}
+	if r.URL == nil {
+		return "", "", false
+	}
+	result := manifestUriRegexp.FindStringSubmatch(r.URL.Path)
+	if len(result) != 3 {
+		return "", "", false
+	}
+	repo := result[1]
+	tag := result[2]
+	return repo, tag, true
+}
 
 // IsManifestGet used to check the uri whether is manifest-get
 // e.p: /v2/tencentmirrors/centos/manifests/7 => tencentmirrors/centos, 7, nil
@@ -52,13 +140,6 @@ func IsBlobGet(url string) (string, string, bool) {
 	repo := result[1]
 	sha256 := result[2]
 	return repo, sha256, true
-}
-
-func IsHeadImageDigest(r *http.Request) bool {
-	if r.Method != http.MethodHead {
-		return false
-	}
-	return manifestUriRegexp.MatchString(r.URL.Path)
 }
 
 // LayerFileName return layer name

@@ -5,30 +5,39 @@
 package customapi
 
 import (
+	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jellydator/ttlcache/v3"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
+	"github.com/penglongli/accelerboat/pkg/bittorrent"
+	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/store"
-)
-
-const (
-	APIHeadDigest       = "/customapi/head-digest"
-	APIGetManifest      = "/customapi/get-manifest"
-	APICheckStaticLayer = "/customapi/check-static-layer"
-	APICheckOCILayer    = "/customapi/check-oci-layer"
-	APIGetLayerInfo     = "/customapi/get-layer-info"
-	APIDownloadLayer    = "/customapi/download-layer"
-	APITransferLayerTCP = "/customapi/transfer-layer-tcp"
-	APIRecorder         = "/customapi/recorder"
-	APITorrentStatus    = "/customapi/torrent-status"
+	"github.com/penglongli/accelerboat/pkg/utils/lock"
 )
 
 // CustomHandler 定义了一系列的方法，用于对外提供服务. 通常是由普通 node 来调用 master 的这些对外接口能力.
 type CustomHandler struct {
 	op         *options.AccelerBoatOption
 	cacheStore store.CacheStore
+
+	authLock               lock.Interface
+	authTokens             *ttlcache.Cache[string, *apitypes.RegistryAuthToken]
+	headManifestLock       lock.Interface
+	headManifests          *ttlcache.Cache[string, map[string][]string]
+	getManifestLock        lock.Interface
+	manifests              *ttlcache.Cache[string, string]
+	layerContentLengthLock lock.Interface
+	layerContentLengths    ttlcache.Cache[string, int64]
+	downloadLayerLock      lock.Interface
+
+	nodeDownloadLock  sync.Mutex
+	nodeDownloadTasks map[string]int
+
+	torrentHandler *bittorrent.TorrentHandler
 }
 
 func NewCustomHandler(op *options.AccelerBoatOption) *CustomHandler {
@@ -38,108 +47,37 @@ func NewCustomHandler(op *options.AccelerBoatOption) *CustomHandler {
 }
 
 func (h *CustomHandler) Register(ginSvr *gin.Engine) {
-	ginSvr.Handle(http.MethodPost, APIHeadDigest, h.RegistryHeadDigest)
-	ginSvr.Handle(http.MethodPost, APIGetManifest, h.RegistryGetManifest)
-	ginSvr.Handle(http.MethodGet, APICheckStaticLayer, h.CheckOCILayer)
-	ginSvr.Handle(http.MethodGet, APICheckOCILayer, h.CheckOCILayer)
-	ginSvr.Handle(http.MethodPost, APIGetLayerInfo, h.GetLayerInfo)
-	ginSvr.Handle(http.MethodGet, APIDownloadLayer, h.DownloadLayer)
-	ginSvr.Handle(http.MethodGet, APITransferLayerTCP, h.TransferLayerTCP)
-	ginSvr.Handle(http.MethodGet, APIRecorder, h.Recorder)
-	ginSvr.Handle(http.MethodGet, APITorrentStatus, h.TorrentStatus)
+	ginSvr.Handle(http.MethodPost, apitypes.APIGetServiceToken, h.HTTPWrapper(h.GetServiceToken))
+	ginSvr.Handle(http.MethodPost, apitypes.APIHeadManifest, h.HTTPWrapper(h.RegistryHeadManifest))
+	ginSvr.Handle(http.MethodPost, apitypes.APIGetManifest, h.HTTPWrapper(h.RegistryGetManifest))
+	ginSvr.Handle(http.MethodGet, apitypes.APICheckStaticLayer, h.HTTPWrapper(h.CheckStaticLayer))
+	ginSvr.Handle(http.MethodGet, apitypes.APICheckOCILayer, h.HTTPWrapper(h.CheckOCILayer))
+	ginSvr.Handle(http.MethodPost, apitypes.APIGetLayerInfo, h.HTTPWrapper(h.GetLayerInfo))
+	ginSvr.Handle(http.MethodGet, apitypes.APIDownloadLayer, h.HTTPWrapper(h.DownloadLayer))
+	ginSvr.Handle(http.MethodGet, apitypes.APIRecorder, h.HTTPWrapper(h.Recorder))
+	ginSvr.Handle(http.MethodGet, apitypes.APITorrentStatus, h.HTTPWrapper(h.TorrentStatus))
+
+	ginSvr.Handle(http.MethodGet, apitypes.APITransferLayerTCP, h.TransferLayerTCP)
 }
 
-type HeadDigestRequest struct {
-	OriginalHost  string              `json:"originalHost"`
-	HeadDigestUrl string              `json:"headDigestUrl"`
-	Headers       map[string][]string `json:"headers"`
+func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error)) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		obj, err := f(c)
+		if err != nil {
+			c.String(http.StatusBadRequest, fmt.Sprintf("request '%s' failed: %s",
+				c.Request.URL.Path, err.Error()))
+			return
+		}
+		if obj == nil {
+			c.JSON(http.StatusOK, gin.H{})
+			return
+		}
+
+		switch obj.(type) {
+		case string:
+			c.String(http.StatusOK, obj.(string))
+		default:
+			c.JSON(http.StatusOK, obj)
+		}
+	}
 }
-
-type HeadDigestResponse struct {
-	Headers map[string][]string `json:"headers"`
-}
-
-func (h *CustomHandler) RegistryHeadDigest(c *gin.Context) {
-
-}
-
-// GetManifestRequest defines the request of GetManifest
-type GetManifestRequest struct {
-	OriginalHost string `json:"originalHost"`
-	ManifestUrl  string `json:"manifestUrl"`
-	Repo         string `json:"repo"`
-	Tag          string `json:"tag"`
-	BearerToken  string `json:"bearerToken"`
-}
-
-func (h *CustomHandler) RegistryGetManifest(c *gin.Context) {
-
-}
-
-// CheckStaticLayerRequest defines the request of check static layer
-type CheckStaticLayerRequest struct {
-	Digest                string `json:"digest"`
-	LayerPath             string `json:"path"`
-	ExpectedContentLength int64  `json:"expectedContentLength"`
-}
-
-// CheckStaticLayerResponse defines the response of CheckStaticLayer
-type CheckStaticLayerResponse struct {
-	Located       string `json:"located"`
-	LayerPath     string `json:"layerPath"`
-	TorrentBase64 string `json:"torrentBase64"`
-	FileSize      int64  `json:"fileSize"`
-}
-
-func (h *CustomHandler) CheckStaticLayer(c *gin.Context) {
-
-}
-
-// CheckOCILayerRequest defines the request of CheckOCILayer
-type CheckOCILayerRequest struct {
-	Digest  string `json:"digest"`
-	OCIType string `json:"ociType"`
-}
-
-// CheckOCILayerResponse defines the response of CheckOCILayer
-type CheckOCILayerResponse struct {
-	Located   string `json:"located"`
-	LayerPath string `json:"layerPath"`
-	FileSize  int64  `json:"fileSize"`
-}
-
-func (h *CustomHandler) CheckOCILayer(c *gin.Context) {
-
-}
-
-// DownloadLayerRequest defines the request of download layer
-type DownloadLayerRequest struct {
-	OriginalHost string `json:"originalHost"`
-	LayerUrl     string `json:"layerUrl"`
-	BearerToken  string `json:"bearerToken"`
-}
-
-// DownloadLayerResponse defines the response of download layer
-type DownloadLayerResponse struct {
-	TorrentBase64 string `json:"torrentBase64"`
-	Located       string `json:"located"`
-	FilePath      string `json:"filePath"`
-	FileSize      int64  `json:"fileSize"`
-}
-
-func (h *CustomHandler) GetLayerInfo(c *gin.Context) {
-
-}
-
-func (h *CustomHandler) DownloadLayer(c *gin.Context) {
-
-}
-
-func (h *CustomHandler) TransferLayerTCP(c *gin.Context) {
-
-}
-func (h *CustomHandler) Recorder(c *gin.Context) {
-
-}
-
-func (h *CustomHandler) TorrentStatus(c *gin.Context) {}

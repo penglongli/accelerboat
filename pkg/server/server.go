@@ -16,11 +16,14 @@ import (
 
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
+	"github.com/penglongli/accelerboat/pkg/bittorrent"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/middleware"
+	"github.com/penglongli/accelerboat/pkg/server/registry"
 )
 
 type AccelerboatServer struct {
@@ -29,6 +32,8 @@ type AccelerboatServer struct {
 	ginSvr      *gin.Engine
 	httpServer  *http.Server
 	httpSServer *http.Server
+
+	torrentHandler *bittorrent.TorrentHandler
 }
 
 func NewAccelerboatServer(op *options.AccelerBoatOption) *AccelerboatServer {
@@ -38,6 +43,11 @@ func NewAccelerboatServer(op *options.AccelerBoatOption) *AccelerboatServer {
 }
 
 func (s *AccelerboatServer) Init() error {
+	s.torrentHandler = bittorrent.NewTorrentHandler()
+	if err := s.torrentHandler.Init(); err != nil {
+		return err
+	}
+	s.initHTTPRouter()
 	return nil
 }
 
@@ -57,7 +67,21 @@ func (s *AccelerboatServer) initHTTPRouter() {
 }
 
 func (s *AccelerboatServer) Run() error {
-
+	fs := []func(errCh chan error){s.runHTTPServer, s.runHTTPSServer}
+	errCh := make(chan error, len(fs))
+	for i := range fs {
+		go fs[i](errCh)
+	}
+	// for-loop wait every goroutine normal finish
+	for i := 0; i < len(fs); i++ {
+		e := <-errCh
+		// we should return error if e not nil, perhaps some goroutines are
+		// exited with error. So we need exit the server
+		if e != nil {
+			return errors.Wrapf(e, "run server failed")
+		}
+	}
+	return nil
 }
 
 func (s *AccelerboatServer) runHTTPServer(errCh chan error) {
@@ -152,7 +176,7 @@ func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 	proxyHost := hosts[0]
 	requestURI := req.RequestURI
 
-	upstreamProxy := proxy.NewUpstreamProxy(proxyHost, proxyType, s.torrentHandler)
+	upstreamProxy := registry.NewUpstreamProxy(proxyType, proxyHost, s.torrentHandler)
 	if upstreamProxy == nil {
 		s.httpError(ctx, rw, fmt.Sprintf("no handler for proxy host '%s'", proxyHost), http.StatusBadRequest)
 		return

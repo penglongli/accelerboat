@@ -4,6 +4,15 @@
 
 package options
 
+import (
+	"crypto/tls"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
 // AccelerBoatOption defines the option of accelerboat
 type AccelerBoatOption struct {
 	Address     string `json:"address"`
@@ -88,9 +97,8 @@ type RegistryMapping struct {
 	Username string          `json:"username"`
 	Password string          `json:"password"`
 	Users    []*RegistryAuth `json:"users,omitempty"`
-	// 用户多个用户名/密码，临时记录正确的内容
-	CorrectUser string `json:"-"`
-	CorrectPass string `json:"-"`
+	// temporary store the legal auths
+	LegalUsers []*RegistryAuth `json:"-"`
 }
 
 // LocalhostCert defines localhost proxy
@@ -140,12 +148,55 @@ const (
 )
 
 var (
-	singleton = new(AccelerBoatOption)
+	singleton    = new(AccelerBoatOption)
+	httpProxyUrl *url.URL
 )
 
 // GlobalOptions returns the global option
 func GlobalOptions() *AccelerBoatOption {
 	return singleton
+}
+
+// HTTPProxyTransport return the insecure-skip-verify transport
+func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
+	netDialer := &net.Dialer{
+		Timeout:   10 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	tp := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           netDialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+	}
+	if httpProxyUrl == nil {
+		return tp
+	}
+	tp.Proxy = http.ProxyURL(httpProxyUrl)
+	return tp
+}
+
+// CurrentMaster return the current master
+func (o *AccelerBoatOption) CurrentMaster() string {
+	var currentASCII int64 = 0
+	var currentEndpoint string
+	masterIP := o.PreferConfig.MasterIP
+	for i := range o.ServiceDiscovery.Endpoints {
+		ep := o.ServiceDiscovery.Endpoints[i]
+		if masterIP != "" && strings.HasPrefix(ep, masterIP+":") {
+			return ep
+		}
+		ascii := StringASCII(ep)
+		if currentASCII < ascii {
+			currentASCII = ascii
+			currentEndpoint = ep
+		}
+	}
+	return currentEndpoint
 }
 
 // FilterRegistryMapping filter registry mapping
@@ -169,6 +220,19 @@ func (o *AccelerBoatOption) FilterRegistryMapping(proxyHost string, proxyType Pr
 			if proxyHost == m.ProxyHost {
 				return m
 			}
+		}
+	}
+	return nil
+}
+
+// FilterRegistryMappingByOriginal filter registry mappings by original registry
+func (o *AccelerBoatOption) FilterRegistryMappingByOriginal(originalHost string) *RegistryMapping {
+	if o.ExternalConfig.DockerHubRegistry.OriginalHost == originalHost {
+		return &o.ExternalConfig.DockerHubRegistry
+	}
+	for _, m := range o.ExternalConfig.RegistryMappings {
+		if originalHost == m.OriginalHost {
+			return m
 		}
 	}
 	return nil

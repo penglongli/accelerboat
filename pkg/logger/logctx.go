@@ -49,6 +49,20 @@ func WithContextFields(ctx context.Context, fields ...string) context.Context {
 	return context.WithValue(ctx, ContextKeyMessage, zapFields)
 }
 
+func GetContextField(ctx context.Context, key string) string {
+	val := ctx.Value(ContextKeyMessage)
+	if val == nil {
+		return ""
+	}
+	fields := val.([]zap.Field)
+	for i := range fields {
+		if fields[i].Key == key {
+			return fields[i].String
+		}
+	}
+	return ""
+}
+
 func contextFields(ctx context.Context) []zap.Field {
 	if val := ctx.Value(ContextKeyMessage); val != nil {
 		if fields, ok := val.([]zap.Field); ok {
