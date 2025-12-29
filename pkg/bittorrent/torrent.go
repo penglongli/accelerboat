@@ -88,7 +88,7 @@ func NewTorrentHandler() *TorrentHandler {
 // Init the torrent handler
 func (th *TorrentHandler) Init() error {
 	clientConfig := torrent.NewDefaultClientConfig()
-	clientConfig.DataDir = th.op.TorrentPath
+	clientConfig.DataDir = th.op.StorageConfig.TorrentPath
 	clientConfig.Seed = true
 	clientConfig.ListenPort = int(th.op.TorrentPort)
 	clientConfig.DisableUTP = true
@@ -105,13 +105,13 @@ func (th *TorrentHandler) Init() error {
 	clientConfig.DialRateLimiter = rate.NewLimiter(100, 200)
 	clientConfig.DisableAcceptRateLimiting = true
 	clientConfig.AcceptPeerConnections = true
-	if th.op.TorrentUploadLimit > 0 {
-		clientConfig.UploadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentUploadLimit),
-			int(th.op.TorrentUploadLimit))
+	if th.op.TorrentConfig.UploadLimit > 0 {
+		clientConfig.UploadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.UploadLimit),
+			int(th.op.TorrentConfig.UploadLimit))
 	}
-	if th.op.TorrentDownloadLimit > 0 {
-		clientConfig.DownloadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentDownloadLimit),
-			int(th.op.TorrentDownloadLimit))
+	if th.op.TorrentConfig.DownloadLimit > 0 {
+		clientConfig.DownloadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.DownloadLimit),
+			int(th.op.TorrentConfig.DownloadLimit))
 	}
 	tc, err := torrent.NewClient(clientConfig)
 	if err != nil {
@@ -120,7 +120,7 @@ func (th *TorrentHandler) Init() error {
 	th.client = tc
 	th.pc, err = storage.NewDefaultPieceCompletionForDir(".")
 	if err != nil {
-		return errors.Wrapf(err, "new piece completion for dir '%s' failed", th.op.TorrentPath)
+		return errors.Wrapf(err, "new piece completion for dir '%s' failed", th.op.StorageConfig.TorrentPath)
 	}
 	return nil
 }
@@ -228,13 +228,13 @@ func (th *TorrentHandler) getLayerFiles(path string) ([]string, error) {
 		}
 		return nil
 	}); err != nil {
-		return nil, errors.Wrapf(err, "read path '%s' failed", th.op.TorrentPath)
+		return nil, errors.Wrapf(err, "read path '%s' failed", th.op.StorageConfig.TorrentPath)
 	}
 	return layerFiles, nil
 }
 
 func (th *TorrentHandler) copySourceToTorrent(sourceFile, digest string) (string, error) {
-	torrentFile := path.Join(th.op.TorrentPath, utils.LayerFileName(digest))
+	torrentFile := path.Join(th.op.StorageConfig.TorrentPath, utils.LayerFileName(digest))
 	_ = os.RemoveAll(torrentFile)
 	torrentFi, err := os.Create(torrentFile)
 	if err != nil {
@@ -320,7 +320,7 @@ func (th *TorrentHandler) generateServeTorrent(ctx context.Context, digest, laye
 	ih := mi.HashInfoBytes()
 	to, _ := th.client.AddTorrentOpt(torrent.AddTorrentOpts{
 		InfoHash: ih,
-		Storage:  storage.NewMMapWithCompletion(th.op.TorrentPath, th.pc),
+		Storage:  storage.NewMMapWithCompletion(th.op.StorageConfig.TorrentPath, th.pc),
 		//Storage: storage.NewFileOpts(storage.NewFileClientOpts{
 		//	ClientBaseDir: layerFile,
 		//	FilePathMaker: func(opts storage.FilePathMakerOpts) string {
@@ -334,7 +334,7 @@ func (th *TorrentHandler) generateServeTorrent(ctx context.Context, digest, laye
 	if err = to.MergeSpec(&torrent.TorrentSpec{
 		DisplayName: digest,
 		InfoBytes:   mi.InfoBytes,
-		Trackers:    [][]string{{th.op.TorrentAnnounce}},
+		Trackers:    [][]string{{th.op.TorrentConfig.Announce}},
 	}); err != nil {
 		return nil, errors.Wrapf(err, "setting trackers failed")
 	}
@@ -417,7 +417,7 @@ func (th *TorrentHandler) DownloadTorrent(ctx context.Context, digest, torrentBa
 	if err := th.downloadTorrent(ctx, digest, torrentBase64); err != nil {
 		return err
 	}
-	torrentFile := path.Join(th.op.TorrentPath, utils.LayerFileName(digest))
+	torrentFile := path.Join(th.op.StorageConfig.TorrentPath, utils.LayerFileName(digest))
 	logical, physical, isSparse, err := utils.IsSparseFile(torrentFile)
 	if err != nil {
 		return errors.Wrapf(err, "check sparse file failed")

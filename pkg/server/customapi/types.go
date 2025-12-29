@@ -14,6 +14,7 @@ import (
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
+	"github.com/penglongli/accelerboat/pkg/ociscan"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/store"
 	"github.com/penglongli/accelerboat/pkg/utils/lock"
@@ -38,6 +39,7 @@ type CustomHandler struct {
 	nodeDownloadTasks map[string]int
 
 	torrentHandler *bittorrent.TorrentHandler
+	ociScanner     *ociscan.ScanHandler
 }
 
 func NewCustomHandler(op *options.AccelerBoatOption) *CustomHandler {
@@ -50,14 +52,16 @@ func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 	ginSvr.Handle(http.MethodPost, apitypes.APIGetServiceToken, h.HTTPWrapper(h.GetServiceToken))
 	ginSvr.Handle(http.MethodPost, apitypes.APIHeadManifest, h.HTTPWrapper(h.RegistryHeadManifest))
 	ginSvr.Handle(http.MethodPost, apitypes.APIGetManifest, h.HTTPWrapper(h.RegistryGetManifest))
+
 	ginSvr.Handle(http.MethodGet, apitypes.APICheckStaticLayer, h.HTTPWrapper(h.CheckStaticLayer))
 	ginSvr.Handle(http.MethodGet, apitypes.APICheckOCILayer, h.HTTPWrapper(h.CheckOCILayer))
+
 	ginSvr.Handle(http.MethodPost, apitypes.APIGetLayerInfo, h.HTTPWrapper(h.GetLayerInfo))
 	ginSvr.Handle(http.MethodGet, apitypes.APIDownloadLayer, h.HTTPWrapper(h.DownloadLayer))
 	ginSvr.Handle(http.MethodGet, apitypes.APIRecorder, h.HTTPWrapper(h.Recorder))
 	ginSvr.Handle(http.MethodGet, apitypes.APITorrentStatus, h.HTTPWrapper(h.TorrentStatus))
 
-	ginSvr.Handle(http.MethodGet, apitypes.APITransferLayerTCP, h.TransferLayerTCP)
+	ginSvr.Handle(http.MethodGet, apitypes.APITransferLayerTCP, h.HTTPWrapper(h.TransferLayerTCP))
 }
 
 func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error)) func(c *gin.Context) {
@@ -69,7 +73,7 @@ func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error))
 			return
 		}
 		if obj == nil {
-			c.JSON(http.StatusOK, gin.H{})
+			// c.JSON(http.StatusOK, gin.H{})
 			return
 		}
 

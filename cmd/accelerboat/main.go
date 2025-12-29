@@ -3,3 +3,22 @@
 // license that can be found in the LICENSE file.
 
 package main
+
+import (
+	"flag"
+)
+
+var (
+	config = flag.String("f", "", "config file path")
+)
+
+func init() {
+	flag.Parse()
+	if config == nil || *config == "" {
+		panic("config file is required")
+	}
+}
+
+func main() {
+
+}

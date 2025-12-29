@@ -76,7 +76,7 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	logger.WarnContextf(ctx, "check layer has cached failed: %s", err.Error())
 	// master should download directly if small layer
 	if contentLength < common.TwentyMB {
-		resultPath := path.Join(h.op.SmallFilePath, utils.LayerFileName(req.Digest))
+		resultPath := path.Join(h.op.StorageConfig.SmallFilePath, utils.LayerFileName(req.Digest))
 		if err = h.requestDownloadLayer(ctx, req, resultPath); err != nil {
 			return nil, fmt.Errorf("download small-layer from original registry '%s/%s' failed",
 				req.OriginalHost, req.LayerUrl)
@@ -94,8 +94,8 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
-func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.DownloadLayerRequest, contentLength int64) (
-	*apitypes.DownloadLayerResponse, error) {
+func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.DownloadLayerRequest,
+	contentLength int64) (*apitypes.DownloadLayerResponse, error) {
 	staticLayers, ociLayers, err := h.cacheStore.QueryLayers(ctx, req.Digest)
 	if err != nil {
 		return nil, errors.Wrapf(err, "query layers from cache store failed")
@@ -210,7 +210,7 @@ func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 	if err := c.ShouldBindJSON(req); err != nil {
 		return nil, errors.Wrapf(err, "parse request failed")
 	}
-	resultPath := path.Join(h.op.TransferPath, utils.LayerFileName(req.Digest))
+	resultPath := path.Join(h.op.StorageConfig.TransferPath, utils.LayerFileName(req.Digest))
 	ctx := c.Request.Context()
 	if err := h.requestDownloadLayer(ctx, req, resultPath); err != nil {
 		return nil, errors.Wrapf(err, "download layer failed")
@@ -225,7 +225,7 @@ func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 		FileSize: fileSize,
 	}
 
-	if h.op.DisableTorrent || fileSize < common.TwoHundredMB {
+	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold {
 		return resp, nil
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
@@ -265,7 +265,7 @@ func (h *CustomHandler) requestDownloadLayer(ctx context.Context, req *apitypes.
 	contentLength := resp.ContentLength
 	layerSize := formatutils.FormatSize(contentLength)
 
-	layerFullPath := path.Join(h.op.StoragePath, utils.LayerFileName(req.Digest))
+	layerFullPath := path.Join(h.op.StorageConfig.DownloadPath, utils.LayerFileName(req.Digest))
 	_ = os.RemoveAll(layerFullPath)
 	layer, err := os.Create(layerFullPath)
 	if err != nil {

@@ -22,7 +22,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
-	"github.com/penglongli/accelerboat/pkg/server/requester"
+	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
 	"github.com/penglongli/accelerboat/pkg/store"
 	"github.com/penglongli/accelerboat/pkg/utils"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
@@ -285,17 +285,17 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 
 func (p *upstreamProxy) checkLocalLayer(digest string) (os.FileInfo, string) {
 	layerName := utils.LayerFileName(digest)
-	localLayer := path.Join(p.op.TransferPath, layerName)
+	localLayer := path.Join(p.op.StorageConfig.TransferPath, layerName)
 	fi, err := os.Stat(localLayer)
 	if err == nil {
 		return fi, localLayer
 	}
-	localLayer = path.Join(p.op.SmallFilePath, layerName)
+	localLayer = path.Join(p.op.StorageConfig.SmallFilePath, layerName)
 	fi, err = os.Stat(localLayer)
 	if err == nil {
 		return fi, localLayer
 	}
-	localLayer = path.Join(p.op.OCIPath, layerName)
+	localLayer = path.Join(p.op.StorageConfig.OCIPath, layerName)
 	fi, err = os.Stat(localLayer)
 	if err == nil {
 		return fi, localLayer
@@ -377,7 +377,7 @@ func (p *upstreamProxy) downloadByTCP(ctx context.Context, target string, filePa
 
 func (p *upstreamProxy) saveLayerToLocal(ctx context.Context, resp *http.Response,
 	digest, newFile string) error {
-	tmpFile := path.Join(p.op.StoragePath, digest+".tar.gzip")
+	tmpFile := path.Join(p.op.StorageConfig.DownloadPath, digest+".tar.gzip")
 	out, err := os.Create(tmpFile)
 	if err != nil {
 		return errors.Wrapf(err, "create file %s failed", tmpFile)

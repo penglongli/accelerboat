@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -21,24 +22,36 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/ociscan"
 	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/middleware"
 	"github.com/penglongli/accelerboat/pkg/server/registry"
+	"github.com/penglongli/accelerboat/pkg/staticwatcher"
 )
 
+// AccelerboatServer defines the accelerboat server
 type AccelerboatServer struct {
 	op *options.AccelerBoatOption
+
+	globalCtx    context.Context
+	globalCancel context.CancelFunc
 
 	ginSvr      *gin.Engine
 	httpServer  *http.Server
 	httpSServer *http.Server
+	ociScanner  *ociscan.ScanHandler
 
 	torrentHandler *bittorrent.TorrentHandler
+	staticWatcher  *staticwatcher.StaticFilesWatcher
 }
 
-func NewAccelerboatServer(op *options.AccelerBoatOption) *AccelerboatServer {
+// NewAccelerboatServer create the instance of Accelerboat
+func NewAccelerboatServer(globalCtx context.Context, op *options.AccelerBoatOption) *AccelerboatServer {
+	ctx, cancel := context.WithCancel(globalCtx)
 	return &AccelerboatServer{
-		op: op,
+		op:           op,
+		globalCtx:    ctx,
+		globalCancel: cancel,
 	}
 }
 
@@ -67,7 +80,8 @@ func (s *AccelerboatServer) initHTTPRouter() {
 }
 
 func (s *AccelerboatServer) Run() error {
-	fs := []func(errCh chan error){s.runHTTPServer, s.runHTTPSServer}
+	fs := []func(errCh chan error){s.runHTTPServer, s.runHTTPSServer, s.runOCITickReporter,
+		s.runTorrentTickReporter, s.runStaticFilesWatcher}
 	errCh := make(chan error, len(fs))
 	for i := range fs {
 		go fs[i](errCh)
@@ -132,10 +146,32 @@ func (s *AccelerboatServer) runHTTPSServer(errCh chan error) {
 			Certificates: tlsCerts,
 		},
 	}
-	if err = s.httpSServer.ListenAndServeTLS("", ""); err != nil && !syserrors.Is(err,
-		http.ErrServerClosed) {
+	if err = s.httpSServer.ListenAndServeTLS("", ""); err != nil &&
+		!syserrors.Is(err, http.ErrServerClosed) {
 		errCh <- err
 		logger.Errorf("failed to start http(s) server: %s", err.Error())
+		return
+	}
+	errCh <- nil
+}
+
+func (s *AccelerboatServer) runOCITickReporter(errCh chan error) {
+	defer blog.Warnf("oci tick reporter exit")
+	s.ociScanner.TickerReport(s.globalCtx)
+	errCh <- nil
+}
+
+func (s *AccelerboatServer) runTorrentTickReporter(errCh chan error) {
+	defer blog.Warnf("torrent tick reporter exit")
+	s.torrentHandler.TickReport(s.globalCtx)
+	errCh <- nil
+}
+
+func (s *AccelerboatServer) runStaticFilesWatcher(errCh chan error) {
+	defer blog.Warnf("static-files watcher exit")
+	if err := s.staticWatcher.Watch(s.globalCtx); err != nil {
+		blog.Errorf("static-files watcher exit with err: %s", err.Error())
+		errCh <- err
 		return
 	}
 	errCh <- nil

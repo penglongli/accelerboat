@@ -8,11 +8,22 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
+	"github.com/robfig/cron/v3"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 )
+
+var (
+	singleton = new(AccelerBoatOption)
+)
+
+// GlobalOptions returns the global option
+func GlobalOptions() *AccelerBoatOption {
+	return singleton
+}
 
 func Parse(configFile string) (*AccelerBoatOption, error) {
 	bs, err := os.ReadFile(configFile)
@@ -23,6 +34,15 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = json.Unmarshal(bs, op); err != nil {
 		return nil, errors.Wrapf(err, "unmarshal config failed")
 	}
+	if err = op.checkLogConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option log-config failed")
+	}
+	if err = op.checkStorageConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option storage config failed")
+	}
+	if err = op.checkCleanConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option clean config failed")
+	}
 	return op, nil
 }
 
@@ -31,47 +51,45 @@ const (
 )
 
 func (o *AccelerBoatOption) checkLogConfig() error {
-	if o.LogDir == "" {
-		o.LogDir = defaultLogDir
+	if o.LogConfig.LogDir == "" {
+		o.LogConfig.LogDir = defaultLogDir
 	}
-	if err := os.MkdirAll(o.LogDir, 0755); err != nil {
-		return errors.Wrapf(err, "create log_dir '%s' failed", o.LogDir)
+	if err := os.MkdirAll(o.LogConfig.LogDir, 0755); err != nil {
+		return errors.Wrapf(err, "create log_dir '%s' failed", o.LogConfig.LogDir)
 	}
-	if o.LogMaxSize <= 0 {
-		o.LogMaxSize = 100
+	if o.LogConfig.LogMaxSize <= 0 {
+		o.LogConfig.LogMaxSize = 100
 	}
-	if o.LogMaxBackups <= 0 {
-		o.LogMaxBackups = 10
+	if o.LogConfig.LogMaxBackups <= 0 {
+		o.LogConfig.LogMaxBackups = 10
 	}
-	if o.LogMaxAge <= 0 {
-		o.LogMaxAge = 30
+	if o.LogConfig.LogMaxAge <= 0 {
+		o.LogConfig.LogMaxAge = 30
 	}
 	logger.InitLogger(&logger.Option{
-		Filename:   filepath.Join(o.LogDir, "accelerboat.log"),
-		MaxSize:    o.LogMaxSize,
-		MaxAge:     o.LogMaxAge,
-		MaxBackups: o.LogMaxBackups,
+		Filename:   filepath.Join(o.LogConfig.LogDir, "accelerboat.log"),
+		MaxSize:    o.LogConfig.LogMaxSize,
+		MaxAge:     o.LogConfig.LogMaxAge,
+		MaxBackups: o.LogConfig.LogMaxBackups,
 	})
 	return nil
 }
 
-func (o *AccelerBoatOption) checkFilePath() error {
-	if err := os.MkdirAll(o.TransferPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", o.TransferPath)
+func (o *AccelerBoatOption) checkStorageConfig() error {
+	if err := os.MkdirAll(o.StorageConfig.TransferPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StorageConfig.TransferPath)
 	}
-	if err := os.MkdirAll(o.StoragePath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", o.StoragePath)
+	if err := os.MkdirAll(o.StorageConfig.DownloadPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StorageConfig.DownloadPath)
 	}
-	if err := os.MkdirAll(o.SmallFilePath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", o.SmallFilePath)
+	if err := os.MkdirAll(o.StorageConfig.SmallFilePath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StorageConfig.SmallFilePath)
 	}
-	// should remove torrentPath to avoid some cached files
-	_ = os.RemoveAll(o.TorrentPath)
-	if err := os.MkdirAll(o.TorrentPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", o.TorrentPath)
+	if err := os.MkdirAll(o.StorageConfig.TorrentPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StorageConfig.TorrentPath)
 	}
-	if err := os.MkdirAll(o.OCIPath, 0600); err != nil {
-		return errors.Wrapf(err, "create file-path '%s' failed", o.OCIPath)
+	if err := os.MkdirAll(o.StorageConfig.OCIPath, 0600); err != nil {
+		return errors.Wrapf(err, "create file-path '%s' failed", o.StorageConfig.OCIPath)
 	}
 	return nil
 }
@@ -84,21 +102,46 @@ const (
 )
 
 func (o *AccelerBoatOption) checkTorrentConfig() error {
-	if o.TorrentThreshold < TwoHundredMB {
-		o.TorrentThreshold = TwoHundredMB
-	}
-	if o.TorrentUploadLimit > 0 && o.TorrentUploadLimit < 1048576 {
-		return errors.Errorf("upload limit '%d' too small, must >= 1048576(1MB/s)", o.TorrentUploadLimit)
-	}
-	if o.TorrentDownloadLimit > 0 && o.TorrentDownloadLimit < 1048576 {
-		return errors.Errorf("download limit '%d' too small, must >= 1048576(1MB/s)", o.TorrentUploadLimit)
-	}
-	if o.DisableTorrent {
+	if !o.TorrentConfig.Enable {
 		return nil
+	}
+	if o.TorrentConfig.Threshold < TwoHundredMB {
+		o.TorrentConfig.Threshold = TwoHundredMB
+	}
+	if o.TorrentConfig.UploadLimit > 0 && o.TorrentConfig.UploadLimit < 1048576 {
+		o.TorrentConfig.UploadLimit = 1048576
+	}
+	if o.TorrentConfig.DownloadLimit > 0 && o.TorrentConfig.DownloadLimit < 1048576 {
+		o.TorrentConfig.DownloadLimit = 1048576
 	}
 	return nil
 }
 
-func (o *AccelerBoatOption) checkCleanConfig() {
+func (o *AccelerBoatOption) checkCleanConfig() error {
+	if o.CleanConfig.Cron == "" {
+		logger.Infof("clean-config not set, no-need auto clean")
+		return nil
+	}
+	parser := cron.NewParser(
+		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+	)
+	schedule, err := parser.Parse(o.CleanConfig.Cron)
+	if err != nil {
+		return errors.Wrapf(err, "parse cron expression '%s' failed", o.CleanConfig.Cron)
+	}
+	if o.CleanConfig.Threshold < 10 {
+		o.CleanConfig.Threshold = 10
+	}
+	if o.CleanConfig.RetainDays < 0 {
+		o.CleanConfig.RetainDays = 0
+	}
 
+	logger.Infof("clean-config is set '%s', retain: %d day, size: %d GB print the next ten execution times:",
+		o.CleanConfig.Cron, o.CleanConfig.RetainDays, o.CleanConfig.Threshold)
+	currentTime := time.Now()
+	for i := 0; i < 10; i++ {
+		currentTime = schedule.Next(currentTime)
+		logger.Infof("  [%d] %s", i, currentTime.Format("2006-01-02 15:04:05"))
+	}
+	return nil
 }
