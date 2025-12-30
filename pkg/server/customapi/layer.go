@@ -22,6 +22,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
 	"github.com/penglongli/accelerboat/pkg/utils"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
+	"github.com/penglongli/accelerboat/pkg/utils/httputils"
 )
 
 func buildContentLengthKey(host, digest string) string {
@@ -38,7 +39,7 @@ func (h *CustomHandler) getLayerContentLength(ctx context.Context, req *apitypes
 		return v.Value(), nil
 	}
 	logger.InfoContextf(ctx, "handling get layer content-length")
-	resp, _, err := utils.SendHTTPRequestReturnResponse(ctx, &utils.HTTPRequest{
+	resp, _, err := httputils.SendHTTPRequestReturnResponse(ctx, &httputils.HTTPRequest{
 		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.LayerUrl),
 		Method:      http.MethodHead,
 		HeaderMulti: req.Headers,
@@ -243,7 +244,7 @@ func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 func (h *CustomHandler) requestDownloadLayer(ctx context.Context, req *apitypes.DownloadLayerRequest,
 	destPath string) error {
 	logger.InfoContextf(ctx, "starting download layer from original registry")
-	resp, err := utils.SendHTTPRequestOnlyResponse(ctx, &utils.HTTPRequest{
+	resp, err := httputils.SendHTTPRequestOnlyResponse(ctx, &httputils.HTTPRequest{
 		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.LayerUrl),
 		Method:      http.MethodGet,
 		HeaderMulti: req.Headers,

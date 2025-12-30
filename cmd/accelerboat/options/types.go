@@ -4,6 +4,14 @@
 
 package options
 
+import (
+	"net/url"
+
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
+)
+
 // AccelerBoatOption defines the option of accelerboat
 type AccelerBoatOption struct {
 	Address     string `json:"address"`
@@ -24,7 +32,7 @@ type AccelerBoatOption struct {
 	ServiceDiscovery ServiceDiscovery `json:"serviceDiscovery"`
 	// PreferConfig with the priority configuration strategy, users can specify the Master node
 	// and designate certain nodes as preferred roles.
-	PreferConfig *PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
+	PreferConfig *leaderselector.PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
 
 	// EnableContainerd enable containerd image discovery
 	EnableContainerd bool `json:"enableContainerd"`
@@ -38,6 +46,8 @@ type AccelerBoatOption struct {
 
 	// ExternalConfig defines the external config
 	ExternalConfig ExternalConfig `json:"externalConfig"`
+
+	k8sClient *kubernetes.Clientset
 }
 
 // LogConfig defines the config of log
@@ -96,6 +106,7 @@ type RegistryAuth struct {
 // RegistryMapping defines the mapping for original registry with proxy. There also defines the
 // username/password for registry when use RegistryMirror mode.
 type RegistryMapping struct {
+	Enable       bool   `json:"enable"`
 	ProxyHost    string `json:"proxyHost"`
 	ProxyCert    string `json:"proxyCert"`
 	ProxyKey     string `json:"proxyKey"`
@@ -113,8 +124,8 @@ const LocalhostCert = "localhost"
 
 // ExternalConfig defines the external config
 type ExternalConfig struct {
-	Enable            bool                     `json:"enable"`
 	HTTPProxy         string                   `json:"httpProxy"`
+	HTTPProxyUrl      *url.URL                 `json:"-"`
 	BuiltInCerts      map[string]*ProxyKeyCert `json:"builtInCerts"`
 	DockerHubRegistry RegistryMapping          `json:"dockerHubRegistry"`
 	RegistryMappings  []*RegistryMapping       `json:"registryMappings"`
@@ -126,20 +137,9 @@ type ServiceDiscovery struct {
 	Endpoints        []string `json:"-"`
 }
 
-// PreferConfig defines the prefer config
-type PreferConfig struct {
-	MasterIP    string             `json:"masterIP" value:"" usage:"manually specify the master node"`
-	PreferNodes *PreferNodesConfig `json:"preferNodes" value:"" usage:"assume the master role and download tasks"`
-}
-
 // CleanConfig defines the clean config
 type CleanConfig struct {
 	Cron       string `json:"cron" usage:"the cron expression"`
 	Threshold  int64  `json:"threshold"`
 	RetainDays int64  `json:"retainDays"`
-}
-
-// PreferNodesConfig defines the prefer nodes config
-type PreferNodesConfig struct {
-	LabelSelectors string `json:"labelSelectors" usage:"the label selector to filter nodes"`
 }

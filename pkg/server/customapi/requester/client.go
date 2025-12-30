@@ -18,7 +18,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/common"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
-	"github.com/penglongli/accelerboat/pkg/utils"
+	"github.com/penglongli/accelerboat/pkg/utils/httputils"
 )
 
 func commonHeaders(ctx context.Context) map[string]string {
@@ -36,7 +36,7 @@ func GetServiceToken(ctx context.Context, req *apitypes.GetServiceTokenRequest) 
 	master := op.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	body, err := utils.SendHTTPRequest(newCtx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", master, apitypes.APIGetServiceToken),
 		Method: http.MethodPost,
 		Body:   req,
@@ -57,7 +57,7 @@ func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (map[s
 	master := op.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	body, err := utils.SendHTTPRequest(newCtx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", master, apitypes.APIHeadManifest),
 		Method: http.MethodPost,
 		Body:   req,
@@ -79,7 +79,7 @@ func GetManifest(ctx context.Context, req *apitypes.GetManifestRequest) (string,
 	master := op.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	body, err := utils.SendHTTPRequest(newCtx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", master, apitypes.APIGetManifest),
 		Method: http.MethodPost,
 		Body:   req,
@@ -100,7 +100,7 @@ func DownloadLayerFromMaster(ctx context.Context, req *apitypes.DownloadLayerReq
 	*apitypes.DownloadLayerResponse, string, error) {
 	op := options.GlobalOptions()
 	master := op.CurrentMaster()
-	body, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", master, apitypes.APIGetLayerInfo),
 		Method: http.MethodPost,
 		Body:   req,
@@ -119,7 +119,7 @@ func DownloadLayerFromMaster(ctx context.Context, req *apitypes.DownloadLayerReq
 func CheckStaticLayer(ctx context.Context, target string, req *apitypes.CheckStaticLayerRequest) (
 	*apitypes.CheckStaticLayerResponse, error) {
 	op := options.GlobalOptions()
-	body, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s:%d%s", target, op.HTTPPort, apitypes.APICheckStaticLayer), // nolint
 		Method: http.MethodGet,
 		Body:   req,
@@ -138,7 +138,7 @@ func CheckStaticLayer(ctx context.Context, target string, req *apitypes.CheckSta
 func CheckOCILayer(ctx context.Context, target string, req *apitypes.CheckOCILayerRequest) (
 	*apitypes.CheckOCILayerResponse, error) {
 	op := options.GlobalOptions()
-	body, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s:%d%s", target, op.HTTPPort, apitypes.APICheckOCILayer), // nolint
 		Method: http.MethodGet,
 		Body:   req,
@@ -156,7 +156,7 @@ func CheckOCILayer(ctx context.Context, target string, req *apitypes.CheckOCILay
 // DownloadLayerFromNode download layer from node
 func DownloadLayerFromNode(ctx context.Context, target string, req *apitypes.DownloadLayerRequest) (
 	*apitypes.DownloadLayerResponse, error) {
-	body, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	body, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", target, apitypes.APIDownloadLayer), // nolint
 		Method: http.MethodGet,
 		Body:   req,

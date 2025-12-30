@@ -14,7 +14,7 @@ import (
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
-	"github.com/penglongli/accelerboat/pkg/utils"
+	"github.com/penglongli/accelerboat/pkg/utils/httputils"
 )
 
 func buildManifestKey(originalHost, repo, tag string) string {
@@ -36,7 +36,7 @@ func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error
 		return &apitypes.HeadManifestResponse{Headers: v.Value()}, nil
 	}
 	logger.InfoContextf(ctx, "handling head image manifest request")
-	resp, _, err := utils.SendHTTPRequestReturnResponse(ctx, &utils.HTTPRequest{
+	resp, _, err := httputils.SendHTTPRequestReturnResponse(ctx, &httputils.HTTPRequest{
 		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.HeadManifestUrl),
 		Method:      http.MethodHead,
 		HeaderMulti: req.Headers,
@@ -67,7 +67,7 @@ func (h *CustomHandler) RegistryGetManifest(c *gin.Context) (interface{}, error)
 		return v.Value(), nil
 	}
 	logger.InfoContextf(ctx, "handling get image manifest request")
-	respBody, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	respBody, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.ManifestUrl),
 		Method:      http.MethodGet,
 		HeaderMulti: req.Headers,

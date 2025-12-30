@@ -6,6 +6,11 @@ package main
 
 import (
 	"flag"
+	"fmt"
+
+	"github.com/pkg/errors"
+
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 )
 
 var (
@@ -20,5 +25,13 @@ func init() {
 }
 
 func main() {
+	op, err := options.Parse(*config)
+	if err != nil {
+		panic(errors.Wrapf(err, "parse options failed"))
+	}
+	opWatcher, err := options.NewChangeWatcher(*config)
+	if err != nil {
+		panic(errors.Wrapf(err, "create options watcher failed"))
+	}
 
 }

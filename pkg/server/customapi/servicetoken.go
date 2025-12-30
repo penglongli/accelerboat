@@ -19,7 +19,7 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
-	"github.com/penglongli/accelerboat/pkg/utils"
+	"github.com/penglongli/accelerboat/pkg/utils/httputils"
 )
 
 func buildAuthTokenKey(originalHost, service, scope string) string {
@@ -28,7 +28,7 @@ func buildAuthTokenKey(originalHost, service, scope string) string {
 
 func getServiceTokenWithCheck(ctx context.Context, req *apitypes.GetServiceTokenRequest) (
 	*apitypes.RegistryAuthToken, error) {
-	respBody, err := utils.SendHTTPRequest(ctx, &utils.HTTPRequest{
+	respBody, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.ServiceTokenUrl),
 		Method:      http.MethodGet,
 		HeaderMulti: req.Headers,
@@ -47,7 +47,7 @@ func getServiceTokenWithCheck(ctx context.Context, req *apitypes.GetServiceToken
 		logger.WarnContextf(ctx, "scope '%s' not repository, noneed check the token", req.Scope)
 		return token, nil
 	}
-	checkResp, err := utils.SendHTTPRequestOnlyResponse(ctx, &utils.HTTPRequest{
+	checkResp, err := httputils.SendHTTPRequestOnlyResponse(ctx, &httputils.HTTPRequest{
 		// We use the `latest` tag for validation, regardless of whether it actually has `latest`,
 		// because we only use it to determine if the token is valid.
 		Url:    fmt.Sprintf("https://%s/v2/%s/manifests/latest", req.OriginalHost, scopeArr[1]),

@@ -38,7 +38,6 @@ func NewChangeWatcher(cfgPath string) (OptionChangeWatcher, error) {
 		cfgPath: cfgPath,
 		watcher: watcher,
 	}, nil
-
 }
 
 type optionChangeHandler struct {
@@ -46,7 +45,7 @@ type optionChangeHandler struct {
 	watcher *fsnotify.Watcher
 }
 
-func (o optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
+func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 	ch := make(chan *OptionChanges)
 	go func() {
 		defer o.watcher.Close()
@@ -69,6 +68,6 @@ func (o optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 	return ch
 }
 
-func (o optionChangeHandler) handleFileChanged() *OptionChanges {
-
+func (o *optionChangeHandler) handleFileChanged() *OptionChanges {
+	
 }

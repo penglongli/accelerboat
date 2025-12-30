@@ -6,23 +6,83 @@ package options
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
+	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 var (
+	prev      = new(AccelerBoatOption)
 	singleton = new(AccelerBoatOption)
 )
 
 // GlobalOptions returns the global option
 func GlobalOptions() *AccelerBoatOption {
 	return singleton
+}
+
+func changeOption(op *AccelerBoatOption) {
+	// initialized for the first time
+	if singleton == nil || prev == nil {
+		_ = utils.DeepCopyStruct(op, singleton)
+		_ = utils.DeepCopyStruct(op, prev)
+		logger.InitLogger(&logger.Option{
+			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
+			MaxSize:    op.LogConfig.LogMaxSize,
+			MaxAge:     op.LogConfig.LogMaxAge,
+			MaxBackups: op.LogConfig.LogMaxBackups,
+		})
+		return
+	}
+
+	_ = utils.DeepCopyStruct(singleton, prev)
+	_ = utils.DeepCopyStruct(op, singleton)
+	if prev.LogConfig.LogDir != singleton.LogConfig.LogDir ||
+		prev.LogConfig.LogMaxSize != singleton.LogConfig.LogMaxSize ||
+		prev.LogConfig.LogMaxAge != singleton.LogConfig.LogMaxAge ||
+		prev.LogConfig.LogMaxBackups != singleton.LogConfig.LogMaxBackups {
+		logger.InitLogger(&logger.Option{
+			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
+			MaxSize:    op.LogConfig.LogMaxSize,
+			MaxAge:     op.LogConfig.LogMaxAge,
+			MaxBackups: op.LogConfig.LogMaxBackups,
+		})
+	}
+
+	// if the singleton is empty, it means it's being initialized for the first time
+	if singleton == nil {
+		_ = utils.DeepCopyStruct(op, singleton)
+	} else {
+		_ = utils.DeepCopyStruct(singleton, prev)
+		_ = utils.DeepCopyStruct(op, singleton)
+	}
+	if prev == nil {
+		// initialized for the first time
+		_ = utils.DeepCopyStruct(op, prev)
+		logger.InitLogger(&logger.Option{
+			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
+			MaxSize:    op.LogConfig.LogMaxSize,
+			MaxAge:     op.LogConfig.LogMaxAge,
+			MaxBackups: op.LogConfig.LogMaxBackups,
+		})
+	} else {
+
+	}
+	logger.Infof("parsed options: %s", string(utils.ToJson(op)))
 }
 
 func Parse(configFile string) (*AccelerBoatOption, error) {
@@ -43,6 +103,19 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = op.checkCleanConfig(); err != nil {
 		return nil, errors.Wrapf(err, "check option clean config failed")
 	}
+	if err = op.checkServiceDiscovery(); err != nil {
+		return nil, errors.Wrapf(err, "check option service discovery failed")
+	}
+	if err = op.checkPreferConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option prefer config failed")
+	}
+	if err = op.checkTorrentConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option torrent config failed")
+	}
+	if err = op.checkExternalConfig(); err != nil {
+		return nil, errors.Wrapf(err, "check option external config failed")
+	}
+
 	return op, nil
 }
 
@@ -66,12 +139,6 @@ func (o *AccelerBoatOption) checkLogConfig() error {
 	if o.LogConfig.LogMaxAge <= 0 {
 		o.LogConfig.LogMaxAge = 30
 	}
-	logger.InitLogger(&logger.Option{
-		Filename:   filepath.Join(o.LogConfig.LogDir, "accelerboat.log"),
-		MaxSize:    o.LogConfig.LogMaxSize,
-		MaxAge:     o.LogConfig.LogMaxAge,
-		MaxBackups: o.LogConfig.LogMaxBackups,
-	})
 	return nil
 }
 
@@ -101,22 +168,6 @@ const (
 	TwoHundredMB int64 = 209715200
 )
 
-func (o *AccelerBoatOption) checkTorrentConfig() error {
-	if !o.TorrentConfig.Enable {
-		return nil
-	}
-	if o.TorrentConfig.Threshold < TwoHundredMB {
-		o.TorrentConfig.Threshold = TwoHundredMB
-	}
-	if o.TorrentConfig.UploadLimit > 0 && o.TorrentConfig.UploadLimit < 1048576 {
-		o.TorrentConfig.UploadLimit = 1048576
-	}
-	if o.TorrentConfig.DownloadLimit > 0 && o.TorrentConfig.DownloadLimit < 1048576 {
-		o.TorrentConfig.DownloadLimit = 1048576
-	}
-	return nil
-}
-
 func (o *AccelerBoatOption) checkCleanConfig() error {
 	if o.CleanConfig.Cron == "" {
 		logger.Infof("clean-config not set, no-need auto clean")
@@ -143,5 +194,82 @@ func (o *AccelerBoatOption) checkCleanConfig() error {
 		currentTime = schedule.Next(currentTime)
 		logger.Infof("  [%d] %s", i, currentTime.Format("2006-01-02 15:04:05"))
 	}
+	return nil
+}
+
+func (o *AccelerBoatOption) checkServiceDiscovery() error {
+	if o.ServiceDiscovery.ServiceNamespace == "" {
+		return fmt.Errorf("namespace cannot be empty")
+	}
+	if o.ServiceDiscovery.ServiceName == "" {
+		return fmt.Errorf("service name cannot be empty")
+	}
+	config, err := rest.InClusterConfig()
+	o.k8sClient, err = kubernetes.NewForConfig(config)
+	if err != nil {
+		return errors.Wrapf(err, "create kubernetes client failed")
+	}
+	return nil
+}
+
+var (
+	labelSelectorRegexp, _ = regexp.Compile(`^[^=,]+=[^=,]+(,[^=,]+=[^=,]+)*$`)
+)
+
+func (o *AccelerBoatOption) checkPreferConfig() error {
+	if o.PreferConfig == nil {
+		return nil
+	}
+	if o.PreferConfig.PreferNodes == nil {
+		return nil
+	}
+	selector := o.PreferConfig.PreferNodes.LabelSelectors
+	if selector == "" {
+		return nil
+	}
+	if !labelSelectorRegexp.MatchString(selector) {
+		return fmt.Errorf("invalid preferNodes.labelSelector '%s'", selector)
+	}
+	return nil
+}
+
+func (o *AccelerBoatOption) checkTorrentConfig() error {
+	if !o.TorrentConfig.Enable {
+		return nil
+	}
+	if o.TorrentConfig.Threshold < TwoHundredMB {
+		o.TorrentConfig.Threshold = TwoHundredMB
+	}
+	if o.TorrentConfig.UploadLimit > 0 && o.TorrentConfig.UploadLimit < 1048576 {
+		o.TorrentConfig.UploadLimit = 1048576
+	}
+	if o.TorrentConfig.DownloadLimit > 0 && o.TorrentConfig.DownloadLimit < 1048576 {
+		o.TorrentConfig.DownloadLimit = 1048576
+	}
+	return nil
+}
+
+func (o *AccelerBoatOption) checkExternalConfig() error {
+	if o.ExternalConfig.HTTPProxy != "" {
+		var err error
+		if o.ExternalConfig.HTTPProxyUrl, err = url.Parse(o.ExternalConfig.HTTPProxy); err != nil {
+			return errors.Wrapf(err, "http_proxy '%s' is invalid", o.ExternalConfig.HTTPProxy)
+		}
+		if err = checkNetConnectivity(o.ExternalConfig.HTTPProxy); err != nil {
+			return errors.Wrapf(err, "check http_proxy connectivity failed")
+		}
+		blog.Infof("set http_proxy '%s' success", o.ExternalConfig.HTTPProxy)
+	}
+	return nil
+}
+
+// checkNetConnectivity check whether the target can connect
+func checkNetConnectivity(target string) error {
+	afterTrim := strings.TrimPrefix(strings.TrimPrefix(target, "http://"), "https://")
+	conn, err := net.DialTimeout("tcp", afterTrim, 5*time.Second)
+	if err != nil {
+		return errors.Wrapf(err, "dial target '%s' failed", target)
+	}
+	defer conn.Close()
 	return nil
 }

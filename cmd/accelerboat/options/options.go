@@ -8,9 +8,10 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
+
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 // ProxyType defines proxy type
@@ -21,10 +22,6 @@ const (
 	DomainProxy ProxyType = "DomainProxy"
 	// RegistryMirror registry mirror
 	RegistryMirror ProxyType = "RegistryMirror"
-)
-
-var (
-	httpProxyUrl *url.URL
 )
 
 // HTTPProxyTransport return the insecure-skip-verify transport
@@ -43,10 +40,10 @@ func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
 		ExpectContinueTimeout: 1 * time.Second,
 		TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
 	}
-	if httpProxyUrl == nil {
+	if o.ExternalConfig.HTTPProxyUrl == nil {
 		return tp
 	}
-	tp.Proxy = http.ProxyURL(httpProxyUrl)
+	tp.Proxy = http.ProxyURL(o.ExternalConfig.HTTPProxyUrl)
 	return tp
 }
 
@@ -60,7 +57,7 @@ func (o *AccelerBoatOption) CurrentMaster() string {
 		if masterIP != "" && strings.HasPrefix(ep, masterIP+":") {
 			return ep
 		}
-		ascii := StringASCII(ep)
+		ascii := utils.StringASCII(ep)
 		if currentASCII < ascii {
 			currentASCII = ascii
 			currentEndpoint = ep
