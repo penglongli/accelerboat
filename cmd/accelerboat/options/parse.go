@@ -62,26 +62,6 @@ func changeOption(op *AccelerBoatOption) {
 			MaxBackups: op.LogConfig.LogMaxBackups,
 		})
 	}
-
-	// if the singleton is empty, it means it's being initialized for the first time
-	if singleton == nil {
-		_ = utils.DeepCopyStruct(op, singleton)
-	} else {
-		_ = utils.DeepCopyStruct(singleton, prev)
-		_ = utils.DeepCopyStruct(op, singleton)
-	}
-	if prev == nil {
-		// initialized for the first time
-		_ = utils.DeepCopyStruct(op, prev)
-		logger.InitLogger(&logger.Option{
-			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
-			MaxSize:    op.LogConfig.LogMaxSize,
-			MaxAge:     op.LogConfig.LogMaxAge,
-			MaxBackups: op.LogConfig.LogMaxBackups,
-		})
-	} else {
-
-	}
 	logger.Infof("parsed options: %s", string(utils.ToJson(op)))
 }
 
@@ -115,7 +95,7 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = op.checkExternalConfig(); err != nil {
 		return nil, errors.Wrapf(err, "check option external config failed")
 	}
-
+	changeOption(op)
 	return op, nil
 }
 

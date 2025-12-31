@@ -49,7 +49,7 @@ func changeMaster(prevMaster string) string {
 	} else {
 		endpoints = result
 		currentMaster := CurrentMaster()
-		if prevMaster != CurrentMaster() {
+		if prevMaster != currentMaster {
 			logger.Infof("current master: %s => %s", prevMaster, currentMaster)
 			return currentMaster
 		}

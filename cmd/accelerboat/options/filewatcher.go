@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 type OptionChanges struct {
@@ -48,7 +49,10 @@ type optionChangeHandler struct {
 func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 	ch := make(chan *OptionChanges)
 	go func() {
-		defer o.watcher.Close()
+		defer func() {
+			o.watcher.Close()
+			logger.Infof("option change watcher closed")
+		}()
 		for {
 			select {
 			case event, ok := <-o.watcher.Events:
@@ -56,12 +60,15 @@ func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 					return
 				}
 				if event.Op&fsnotify.Write == fsnotify.Write && event.Name == o.cfgPath {
-					logger.Infof("config file path '%s' is modified", o.cfgPath)
 					opc := o.handleFileChanged()
-					if opc != nil {
-						ch <- opc
+					if opc == nil {
+						continue
 					}
+					logger.Infof("config file '%s' is modified", o.cfgPath)
+					ch <- opc
 				}
+			case <-ctx.Done():
+				return
 			}
 		}
 	}()
@@ -69,5 +76,18 @@ func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 }
 
 func (o *optionChangeHandler) handleFileChanged() *OptionChanges {
-	
+	newOp, err := Parse(o.cfgPath)
+	if err != nil {
+		logger.Errorf("parse config file failed: %s", err.Error())
+		return nil
+	}
+	changeOption(newOp)
+	prevOp := &AccelerBoatOption{}
+	currentOp := &AccelerBoatOption{}
+	_ = utils.DeepCopyStruct(prev, prevOp)
+	_ = utils.DeepCopyStruct(singleton, currentOp)
+	return &OptionChanges{
+		Prev:    prevOp,
+		Current: currentOp,
+	}
 }
