@@ -12,9 +12,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
@@ -31,7 +29,8 @@ import (
 
 // AccelerboatServer defines the accelerboat server
 type AccelerboatServer struct {
-	op *options.AccelerBoatOption
+	op        *options.AccelerBoatOption
+	opWatcher options.OptionChangeWatcher
 
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
@@ -46,10 +45,12 @@ type AccelerboatServer struct {
 }
 
 // NewAccelerboatServer create the instance of Accelerboat
-func NewAccelerboatServer(globalCtx context.Context, op *options.AccelerBoatOption) *AccelerboatServer {
+func NewAccelerboatServer(globalCtx context.Context, op *options.AccelerBoatOption,
+	opWatcher options.OptionChangeWatcher) *AccelerboatServer {
 	ctx, cancel := context.WithCancel(globalCtx)
 	return &AccelerboatServer{
 		op:           op,
+		opWatcher:    opWatcher,
 		globalCtx:    ctx,
 		globalCancel: cancel,
 	}
@@ -61,6 +62,14 @@ func (s *AccelerboatServer) Init() error {
 		return err
 	}
 	s.initHTTPRouter()
+	s.ociScanner = ociscan.NewScanHandler()
+	if err := s.ociScanner.Init(); err != nil {
+		return err
+	}
+	s.staticWatcher = staticwatcher.NewStaticFileWatcher()
+	if err := s.staticWatcher.Init(s.globalCtx); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -81,11 +90,16 @@ func (s *AccelerboatServer) initHTTPRouter() {
 
 func (s *AccelerboatServer) Run() error {
 	fs := []func(errCh chan error){s.runHTTPServer, s.runHTTPSServer, s.runOCITickReporter,
-		s.runTorrentTickReporter, s.runStaticFilesWatcher}
+		s.runStaticFilesWatcher, s.runOptionFileWatcher}
 	errCh := make(chan error, len(fs))
 	for i := range fs {
 		go fs[i](errCh)
 	}
+	go func() {
+		<-s.globalCtx.Done()
+		s.httpServer.Shutdown(context.Background())
+		s.httpSServer.Shutdown(context.Background())
+	}()
 	// for-loop wait every goroutine normal finish
 	for i := 0; i < len(fs); i++ {
 		e := <-errCh
@@ -156,33 +170,35 @@ func (s *AccelerboatServer) runHTTPSServer(errCh chan error) {
 }
 
 func (s *AccelerboatServer) runOCITickReporter(errCh chan error) {
-	defer blog.Warnf("oci tick reporter exit")
+	defer logger.Warnf("oci tick reporter exit")
 	s.ociScanner.TickerReport(s.globalCtx)
 	errCh <- nil
 }
 
-func (s *AccelerboatServer) runTorrentTickReporter(errCh chan error) {
-	defer blog.Warnf("torrent tick reporter exit")
-	s.torrentHandler.TickReport(s.globalCtx)
-	errCh <- nil
-}
-
 func (s *AccelerboatServer) runStaticFilesWatcher(errCh chan error) {
-	defer blog.Warnf("static-files watcher exit")
+	defer logger.Warnf("static-files watcher exit")
 	if err := s.staticWatcher.Watch(s.globalCtx); err != nil {
-		blog.Errorf("static-files watcher exit with err: %s", err.Error())
+		logger.Errorf("static-files watcher exit with err: %s", err.Error())
 		errCh <- err
 		return
 	}
 	errCh <- nil
 }
 
-// Shutdown the image proxy server
-func (s *AccelerboatServer) Shutdown() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s.httpServer.Shutdown(ctx)
-	s.httpSServer.Shutdown(ctx)
+func (s *AccelerboatServer) runOptionFileWatcher(errCh chan error) {
+	defer logger.Warnf("option watcher exit")
+	ch := s.opWatcher.Watch(s.globalCtx)
+L:
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				break L
+			}
+			// TODO: need do something but now do nothing
+		}
+	}
+	errCh <- nil
 }
 
 var (

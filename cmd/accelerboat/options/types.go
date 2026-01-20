@@ -30,9 +30,6 @@ type AccelerBoatOption struct {
 
 	// ServiceDiscovery defines the discovery between all nodes
 	ServiceDiscovery ServiceDiscovery `json:"serviceDiscovery"`
-	// PreferConfig with the priority configuration strategy, users can specify the Master node
-	// and designate certain nodes as preferred roles.
-	PreferConfig *leaderselector.PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
 
 	// EnableContainerd enable containerd image discovery
 	EnableContainerd bool `json:"enableContainerd"`
@@ -135,6 +132,10 @@ type ServiceDiscovery struct {
 	ServiceNamespace string   `json:"serviceNamespace"`
 	ServiceName      string   `json:"serviceName"`
 	Endpoints        []string `json:"-"`
+
+	// PreferConfig with the priority configuration strategy, users can specify the Master node
+	// and designate certain nodes as preferred roles.
+	PreferConfig *leaderselector.PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
 }
 
 // CleanConfig defines the clean config

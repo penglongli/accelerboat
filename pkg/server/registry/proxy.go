@@ -20,7 +20,6 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
 	"github.com/penglongli/accelerboat/pkg/logger"
-	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
 	"github.com/penglongli/accelerboat/pkg/store"
@@ -170,7 +169,7 @@ func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Req
 	service, scope string) error {
 	ctx = logger.WithContextFields(ctx, "service", service, "scope", scope)
 	logger.InfoContextf(ctx, "handling service-token request")
-	getServiceTokenReq := &customapi.GetServiceTokenRequest{
+	getServiceTokenReq := &apitypes.GetServiceTokenRequest{
 		OriginalHost:    p.proxyRegistry.OriginalHost,
 		ServiceTokenUrl: req.URL.String(),
 		Headers:         req.Header,
@@ -191,7 +190,7 @@ func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Reques
 	repo, tag string) error {
 	ctx = logger.WithContextFields(ctx, "repo", repo, "tag", tag)
 	logger.InfoContextf(ctx, "handling head-manifest request")
-	headManifestReq := &customapi.HeadManifestRequest{
+	headManifestReq := &apitypes.HeadManifestRequest{
 		OriginalHost:    req.Host,
 		HeadManifestUrl: req.URL.RequestURI(),
 		Headers:         req.Header,
@@ -215,7 +214,7 @@ func (p *upstreamProxy) handleGetManifest(ctx context.Context, req *http.Request
 	repo, tag string) error {
 	ctx = logger.WithContextFields(ctx, "repo", repo, "tag", tag)
 	logger.InfoContextf(ctx, "handling get-manifest request")
-	getManifestReq := &customapi.GetManifestRequest{
+	getManifestReq := &apitypes.GetManifestRequest{
 		OriginalHost: req.Host,
 		ManifestUrl:  req.URL.RequestURI(),
 		Headers:      req.Header,
@@ -249,7 +248,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	defer p.layerLock.UnLock(ctx, digest)
 
 	logger.InfoContextf(ctx, "start get layer-info from master")
-	layerReq := &customapi.DownloadLayerRequest{
+	layerReq := &apitypes.DownloadLayerRequest{
 		OriginalHost: req.Host,
 		LayerUrl:     req.URL.RequestURI(),
 		Headers:      req.Header,
@@ -264,9 +263,9 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	if layerResp.TorrentBase64 != "" {
 		haveTorrent = "(too long not print)"
 	}
-	logger.InfoContextf(ctx, "get layer-info from master success, located: %s, "+
-		"filePath: %s, size: %s, torrent: %s, master=%s", layerResp.Located, layerResp.FilePath,
-		formatutils.FormatSize(layerResp.FileSize), haveTorrent, master)
+	logger.InfoContextf(ctx, "get layer-info from master(%s) success, located: %s, "+
+		"filePath: %s, size: %s, torrent: %s", master, layerResp.Located, layerResp.FilePath,
+		formatutils.FormatSize(layerResp.FileSize), haveTorrent)
 	// Should download layer from local again, maybe already have it on local
 	// Because when we download the layer from the master, the master may assign the task of downloading the
 	// layer to us. When we get the layer information, the layer may have been downloaded to the current node.
@@ -329,7 +328,7 @@ func (p *upstreamProxy) downloadLayerFromLocal(ctx context.Context, digest strin
 	return true
 }
 
-func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *customapi.DownloadLayerResponse,
+func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *apitypes.DownloadLayerResponse,
 	digest string) error {
 	// download layer from target directly with tcp
 	if resp.TorrentBase64 == "" {

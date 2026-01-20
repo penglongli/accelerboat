@@ -69,7 +69,7 @@ func SendHTTPRequestOnlyResponse(ctx context.Context, hr *HTTPRequest) (*http.Re
 	var req *http.Request
 	var err error
 
-	if !strings.Contains(hr.Url, "custom_api") {
+	if !strings.Contains(hr.Url, "customapi") {
 		logger.InfoContextf(ctx, "do request '%s/%s'", hr.Method, hr.Url)
 	}
 	if hr.Body != nil {
@@ -109,7 +109,7 @@ func SendHTTPRequestOnlyResponse(ctx context.Context, hr *HTTPRequest) (*http.Re
 
 	var resp *http.Response
 	httpClient := &http.Client{}
-	if !strings.Contains(hr.Url, "custom_api") {
+	if !strings.Contains(hr.Url, "customapi") {
 		httpClient.Transport = options.GlobalOptions().HTTPProxyTransport()
 	} else {
 		httpClient.Transport = &http.Transport{

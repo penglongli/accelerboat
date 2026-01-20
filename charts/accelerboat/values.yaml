@@ -1,0 +1,243 @@
+# Default values for accelerboat.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# This sets the container image more information can be found here: https://kubernetes.io/docs/concepts/containers/images/
+image:
+  repository: accelerboat/accelerboat
+  # This sets the pull policy for images.
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: "v0.1.0"
+
+# This is for the secrets for pulling an image from a private repository more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/
+imagePullSecrets: []
+# This is to override the chart name.
+nameOverride: "accelerboat"
+fullnameOverride: "accelerboat"
+
+# Defines the runtime
+# -> standalone: Suitable for independent clusters with the concept of nodes.
+# -> serverless：Suitable for clusters without the concept of nodes.
+runtime: standalone
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+env:
+  httpPort: 2080
+  httpsPort: 2081
+  metricPort: 2082
+  torrentPort: 2083
+  logDir: "/data/accelerboat/logs"
+  logMaxSize: 200
+  logMaxBackups: 10
+  logMaxAge: 15
+  # 文件的各个存储路径(请勿修改)
+  downloadPath: /data/accelerboat/storage
+  transferPath: /data/accelerboat/transfer
+  smallFilePath: /data/accelerboat/smallfile
+  ociPath: /data/accelerboat/oci
+  torrentPath: /data/accelerboat/torrent
+  eventFile: /data/accelerboat/accelerboat.event
+  # 清理的定时任务表达式，五段式结构；为空则表示不开启
+  # 如 "* * * * *" 表示每秒执行
+  cleanCron: ""
+  # 文件保留的阈值，单位 GB
+  cleanThreshold: "100"
+  # 保留最近 x 天的缓存文件
+  cleanRetainDays: 3
+  # 优选的 MasterIP，可以由用户指定
+  preferMasterIP: ""
+  # 优选的 Node 节点，这些 Node 节点会承担下载任务以及 Master 选举；为空表示不使用
+  # 多个 selector 是并的关系，格式：k1=v1,k2=v2
+  preferLabelSelectors: ""
+  # 是否开启 Containerd 镜像发现
+  enableContainerd: false
+  # 是否启用 BitTorrent 协议, 用户按需修改此项
+  enableTorrent: false
+  # 使用 BitTorrent 协议的文件大小阈值（超过则使用 Torrent 分发），单位 MB
+  torrentThreshold: 200
+  # 种子上传速度限制，0 表示无限制. 单位 MB
+  torrentUploadLimit: 0
+  # 种子下载速度限制，0 表示无限制. 单位 MB
+  torrentDownloadLimit: 0
+  # Torrent 协议的 Tracker 地址(请勿修改)
+  torrentAnnounce: udp://{{ .Values.tracker.name }}.{{ .Release.Namespace }}.svc.cluster.local:6969
+  # 部署的 Redis 地址
+  redisAddress: accelerboat-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379
+  redisPassword: ""
+  # 是否设置 HTTP_PROXY 作为镜像拉取流量出口, 如：http://x.x.x.x:2088（不需要则不填写）
+  # 如果开启了此 chart 中的 squid，地址为：http://squid.${namespace}.svc.cluster.local:2088
+  httpProxy: ""
+
+externalConfig:
+  # 镜像仓库映射关系，用户需要按需修改此处
+  registryMappings:
+  # - proxyHost: "代理的域名（也即上述申的指向 127.0.0.1 的域名，如：docker-registry.myprivate.com）"
+  #   proxyCert: "代理域名的证书 base64（没有可以不填，需要用户配置 OCI 的 insecure-registry）"
+  #   proxyKey: "代理域名的证书 base64（没有可以不填）"
+  #   originalHost: "源仓库的域名（如：mirrors.tencent.com）"
+  #   username: "源仓库的用户名"
+  #   password: "源仓库的密码"
+  #   # 此项针对部分用户使用了多个大洲的 Registry 实例，对应了多个密码，做了 CNAME 按地域解析，需要将全部密码填入
+  #   # 镜像加速启动后，会逐个判断密码是否正确，选择正确的作为实际使用的用户
+  #   # 不需要此项功能可以将下述配置全部删除，使用到此功能需要将上边的 username/password 删除
+  #   users:
+  #     - username: user1
+  #       password: pass1
+  #     - username: user2
+  #       password: pass2
+
+builtInCerts:
+  localhost:
+    cert: "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSURPakNDQWlLZ0F3SUJBZ0lVWE9OZmZLRVp4bG02UGlDdEhtRzRMa3hBdTlzd0RRWUpLb1pJaHZjTkFRRUYKQlFBd05URVNNQkFHQTFVRUF3d0piRzlqWVd4b2IzTjBNUkl3RUFZRFZRUUtEQWxzYjJOaGJHaHZjM1F4Q3pBSgpCZ05WQkFZVEFrTk9NQjRYRFRJMU1EWXhOakEyTkRVd01Gb1hEVE13TVRJeU9EQTJORFV3TUZvd1dqRUxNQWtHCkExVUVCaE1DUTA0eEVqQVFCZ05WQkFnTUNVZDFZVzVuWkc5dVp6RVJNQThHQTFVRUJ3d0lVMmhsYm5wb1pXNHgKRURBT0JnTlZCQW9NQjFSbGJtTmxiblF4RWpBUUJnTlZCQU1NQ1d4dlkyRnNhRzl6ZERDQ0FTSXdEUVlKS29aSQpodmNOQVFFQkJRQURnZ0VQQURDQ0FRb0NnZ0VCQU5YSWtsNjB1aXVDSlZ6SG11aDYyNVo1NmRZeW1xWGZLdVNYCmE4alVDSS82Y0R4ZDFaQm9sZ0NqUXJSMlpyOWdyaE9nZCthTDgzMGNXVDJZZkJIY093aVpTeDBxS0NuMXQrT0EKU3VYa080QVd0a1lMS1QxekpUbjVvL2R3MEg3KzNkclRBdGdPb3BHZlVQQkM0bWhaN2xiSjl2VW52YjhoMVUzegowOGh2c3VERjlGcWUrcVlVWXQwMjZ4ZzFZSXlCRVFuSkJpWENsR1hkMUdDdmpTMHFub3E3am5mVktpa1o0TXRVCjI3aFppaEJVaXlNNXExaXpkRTFMd1FmTFVZSFF1RzJ5ZG51ZWovK3RmWStZZEZhSUNvbUM2aDEzMzhHb0k1WkwKc1lVQlN0dTFIOEY4czU2QTNjVHJLRnN5VkNERnptdVpQMDdybnYyVkExelNSRUg4eXpVQ0F3RUFBYU1kTUJzdwpDd1lEVlIwUkJBUXdBb0lBTUF3R0ExVWRFd0VCL3dRQ01BQXdEUVlKS29aSWh2Y05BUUVGQlFBRGdnRUJBSG8rCnlxWnNuYkRMMGpWRldWMUQySE4rK2dPc21Gd2hET2VseGc2ZGtwdU1KSVkzcmRhellGRERDVHQ5ZUpncS9PZUYKMUs0WEtsT0VBV0hvdWFpS0xPRlo1Tm5tak5DWnFTOUNSTUlpYThvL0tJckgvNTU0eU45TTJ5cmhjL3NkY1ViWQovTjA1RXdtL1d1NU12dWo3SkpjMHBXWDIvcUN6aVo2UUdiQmhDUWQxYlpPbUpNaDlIdi9CWGQ5K3pwVHYvWFpRCkNLYTAxdWZOUGlMQ3NySzR4RDNHL2lTRDRVVjZidkNvTEVCY3FuSDI2VFV0MkVzMUVuUWRXL29EN0Z1bThJL0IKdGF0NHFmUFRxZlFuUTdRNlNvS3NFTHFjVjFNV2d2MDVoaHJ3akkvZm44RmUrVGVraGJ5dDhrMlFCcjdlbEpVSgo4V1BWN1JtWHpyTHYwYlRJdlRvPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t"
+    key: "LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktnd2dnU2tBZ0VBQW9JQkFRRFZ5SkpldExvcmdpVmMKeDVyb2V0dVdlZW5XTXBxbDN5cmtsMnZJMUFpUCtuQThYZFdRYUpZQW8wSzBkbWEvWUs0VG9IZm1pL045SEZrOQptSHdSM0RzSW1Vc2RLaWdwOWJmamdFcmw1RHVBRnJaR0N5azljeVU1K2FQM2NOQisvdDNhMHdMWURxS1JuMUR3ClF1Sm9XZTVXeWZiMUo3Mi9JZFZOODlQSWI3TGd4ZlJhbnZxbUZHTGROdXNZTldDTWdSRUp5UVlsd3BSbDNkUmcKcjQwdEtwNkt1NDUzMVNvcEdlRExWTnU0V1lvUVZJc2pPYXRZczNSTlM4RUh5MUdCMExodHNuWjduby8vclgyUAptSFJXaUFxSmd1b2RkOS9CcUNPV1M3R0ZBVXJidFIvQmZMT2VnTjNFNnloYk1sUWd4YzVybVQ5TzY1NzlsUU5jCjBrUkIvTXMxQWdNQkFBRUNnZ0VBZjZ3b0ZkMHk3YmJzMzBycHJYdHAxcVQ2VEl5dUpPOXhhMUV1OHFJR2R3M20KcDNhV2k0YWFSc2s1bGhLNzdBRXVGTlNacHByZ0VGQzB6djlZNFVXNEQ3dVV5MWNZNDI0Mm91eEVUcVVPRDhJQQptelloSyt5dlI3OVo5L1ZzM3RzUTNaVjFObGtQSjQ2UXhOdjg0THNNaHRKWTVUSVZ0S2JjLzQvbFkrZXBXV2huCkRndFFEYnRrR2w1U2FHd1V6d0dxS3k0L0xEUXEzN3dGVHowNllLNGtzREtmVXQyV3RhRHlXZDNqSFlteTRWdXgKZGU3MzVZU04zaGcxZGc4aWlITE9nQlB0Z2VkamxsNzRoeGpvNi9IWGQ1MkVYb0xwRnVpQUliQkg5dlcxelFZbQptSjFzR3lCMGJRSmk0bHNBTFFyWEo0cVhQcEVXeDFTelFMbTMxSWlWWlFLQmdRRDdiZndhNmkxMFFrMlpUNStsCkNrR005Wk9BYWtnK2diWEZLR2V1SEd4TnNQL0w2TzJwV1hTWjRVZm9Xd1ZyajF6NEVLVWcyUldhT0dsUERDdmYKa2FSVzhEQW14NDFSZ2pkQUxjNUs4MHVnT1g0ZksrbHRkNC93ZVg1amNiUnFGRFk3eGhLZzV1SHB5VzhYdSt2ago1SkVYMHZGMUlBTWlIMVE2b1JCNUsrb0pJd0tCZ1FEWnEyY0xjaUFtNXoxWnVCeXEzbEhaUDJIU0k0OHEzQ29SCk16T2FuQzdoWXYxcHZOV1ZqUEEzQ05FZzhjNUZzSFM5Z1ZBaHlsUkFuRnRlSkpjbmJaK2Q1dG9wMVZQMCtzNVIKbDdQYmdlVHNTQmtSdmF4TkhONGQvMktsaGpFQXRPVGJnQTRQSVJ0cnNnYTNvVDZqYVBpUnhPZlJxSWd2ZVl4RQpmdGZDbTVNYnh3S0JnUUR6RStJb0l6N09wMHRlYlJ4cTh2OXN4LzlTcDI0eEFEWTc1bFJXZ0NRMCtHcFZPVnlMCjNYQmRWTyt3TkUrSkxaRTBRdU5pWG40RUc0VzBacEFFRlVwTXd1bktsQ0tNS3RnL3RBazliUG93YldVQnZmSnYKWXFoR1ZTOWI5UkgzZkpMeU53ekxnbXZuR2xmTkdtRjBjZ1hVZ3B2dUlJVG0rR0wyUzhFaFpOTmZBUUtCZ0NoYQpwSkgwcUkxTjFZdnFuRFg1WFljL1B1MXNka0JsN002ZmhYT21mUEtBSGFjYXdTWW1xT29yRWtwZlNmU1ZrQzhKCjZFYzdjWDlBL1pkb2hUVmtGM0Y0dVAyRWRUbzN2VVJYTVpzQ2ErUjZRVnVPcElEdlZ5YU1rRWRMcDQ0UCsxWE8KV2N6b1FHTW84Q0hmSFBQQ3BFS3lGS0JEOUd1SXh6NXpuYUNRb3lkRkFvR0JBTUdrWjRVYXgvenA0NlRmdzJ0RQpLSEM1clRFYm1EbWYveVpZbHNUZFBibzQ5Q3pDRjBRNjRTQ3BrUWZEdHRzc1R1RHIxSkVFT1huY1JZb055dXJJCjJzZ3poY21MTHNKS2xKSUxNWlA5OVJwdVlhZ042YkcxWEt5U3JDcDRJN2ZvUStPWFltT21KR0RLTHkraEdQNFYKVTZ6Vktma2xBdk9UT1hwZFlIbjJGMi9UCi0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0="
+
+# This is for setting up a service more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/
+service:
+  # This sets the service type more information can be found here: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+  type: ClusterIP
+
+
+# standalone 模式下挂载宿主机的目录(建议用户不要进行修改)
+standalone:
+  volumes:
+    - name: host-volume
+      hostPath:
+        path: /data/accelerboat
+        type: "DirectoryOrCreate"
+  volumeMounts:
+    - name: host-volume
+      mountPath: /data/accelerboat
+
+# Containerd 镜像互相发现功能（仅在 standalone 模式下生效）
+containerd:
+  volumes:
+    - name: containerd-sock
+      hostPath:
+        path: /run/containerd/containerd.sock
+        type: Socket
+    - name: containerd-root
+      hostPath:
+        path: /var/lib/containerd
+  volumeMounts:
+    - name: containerd-sock
+      mountPath: /run/containerd/containerd.sock
+      readOnly: true
+    - name: containerd-root
+      mountPath: /var/lib/containerd
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+livenessProbe:
+  httpGet:
+    path: /customapi/recorder
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  successThreshold: 1
+  failureThreshold: 3
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+tracker:
+  name: accelerboat-tracker
+  image:
+    repository: accelerboat/tracker
+    pullPolicy: IfNotPresent
+    tag: "v0.1.0"
+  resources: {}
+    # We usually recommend not to specify default resources and to leave this as a conscious
+    # choice for the user. This also increases chances charts run on environments with little
+    # resources, such as Minikube. If you do want to specify resources, uncomment the following
+    # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+    # limits:
+    #   cpu: 100m
+    #   memory: 128Mi
+    # requests:
+    #   cpu: 100m
+    #   memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+
+redis:
+  global:
+    security:
+      allowInsecureImages: true
+  networkPolicy:
+    enabled: false
+  fullnameOverride: "accelerboat-redis"
+  architecture: "standalone"
+  image:
+    registry: ""
+    repository: accelerboat/redis
+    pullPolicy: IfNotPresent
+  replica:
+    replicaCount: 1
+  auth:
+    enabled: false
+  master:
+    pdb:
+      create: false
+    kind: StatefulSet
+    podSecurityContext:
+      enabled: false
+    containerSecurityContext:
+      enabled: false
+    persistence:
+      enabled: false
+      size: 20Gi
+      storageClass: cbs
+    resources: {}
+      # We usually recommend not to specify default resources and to leave this as a conscious
+      # choice for the user. This also increases chances charts run on environments with little
+      # resources, such as Minikube. If you do want to specify resources, uncomment the following
+      # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+      # limits:
+      #   cpu: 100m
+      #   memory: 128Mi
+      # requests:
+      #   cpu: 100m
+      #   memory: 128Mi
+
+squid:
+  enabled: false
+  fullnameOverride: "accelerboat-squid"
+  image:
+    repository: accelerboat/squid
+    pullPolicy: IfNotPresent
+    tag: "5.2-22.04_beta"

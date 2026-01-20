@@ -16,6 +16,24 @@ import (
 	"github.com/pkg/errors"
 )
 
+func CopyFile(source, target string) error {
+	_ = os.RemoveAll(target)
+	targetFi, err := os.Create(target)
+	if err != nil {
+		return errors.Wrapf(err, "create target file '%s' failed", target)
+	}
+	defer targetFi.Close()
+	sourceFi, err := os.Open(source)
+	if err != nil {
+		return errors.Wrapf(err, "open source file '%s' failed", source)
+	}
+	defer sourceFi.Close()
+	if _, err = io.Copy(targetFi, sourceFi); err != nil {
+		return errors.Wrapf(err, "copy faile '%s' to '%s' failed", source, target)
+	}
+	return nil
+}
+
 // IsSparseFile check linux file is sparse file
 func IsSparseFile(filePath string) (int64, int64, bool, error) {
 	fileInfo, err := os.Stat(filePath)

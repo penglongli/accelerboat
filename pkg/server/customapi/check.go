@@ -67,9 +67,12 @@ func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 		return nil, errors.Wrapf(err, "stat oc-layer '%s' failed", layerPath)
 	}
 	return &apitypes.CheckOCILayerResponse{
-		Located:   h.op.Address,
-		LayerPath: layerPath,
-		FileSize:  fi.Size(),
+		// TODO: Currently, OCI layers are not being transferred using the BitTorrent protocol,
+		// but rather via direct TCP transfer. We may consider using the BitTorrent protocol in the future.
+		TorrentBase64: "",
+		Located:       h.op.Address,
+		LayerPath:     layerPath,
+		FileSize:      fi.Size(),
 	}, nil
 }
 

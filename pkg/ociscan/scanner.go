@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
@@ -75,11 +74,13 @@ func (s *ScanHandler) TickerReport(ctx context.Context) {
 
 // reportOCILayers report docker and containerd oci-layers
 func (s *ScanHandler) reportOCILayers(ctx context.Context) {
-	layers := s.cc.Parse(ctx)
-	s.containerdLayers = layers
-	for k, v := range layers {
-		if err := s.cacheStore.SaveOCILayer(ctx, store.CONTAINERD, k, v); err != nil {
-			blog.Errorf(err.Error())
+	if s.cc != nil {
+		layers := s.cc.Parse(ctx)
+		s.containerdLayers = layers
+		for k, v := range layers {
+			if err := s.cacheStore.SaveOCILayer(ctx, store.CONTAINERD, k, v); err != nil {
+				logger.Errorf(err.Error())
+			}
 		}
 	}
 }
@@ -211,17 +212,17 @@ func (s *ScanHandler) initContainerdChecker() *containerdChecker {
 	}
 	cc, err := containerd.New("/run/containerd/containerd.sock")
 	if err != nil {
-		blog.Errorf("ignore containerd. init containerd client failed: %s", err.Error())
+		logger.Errorf("ignore containerd. init containerd client failed: %s", err.Error())
 		return nil
 	}
-	blog.Infof("init containerd client success")
+	logger.Infof("init containerd client success")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	var vs containerd.Version
 	if vs, err = cc.Version(ctx); err != nil {
-		blog.Warnf("ignore containerd. get containerd version failed: %s", err.Error())
+		logger.Warnf("ignore containerd. get containerd version failed: %s", err.Error())
 	} else {
-		blog.Infof("init containerd get version sucees: %s", vs.Version)
+		logger.Infof("init containerd get version sucees: %s", vs.Version)
 	}
 	return &containerdChecker{
 		Client: cc,

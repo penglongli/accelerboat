@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/common"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
@@ -32,8 +33,7 @@ func commonHeaders(ctx context.Context) map[string]string {
 
 // GetServiceToken get token from master
 func GetServiceToken(ctx context.Context, req *apitypes.GetServiceTokenRequest) (string, string, error) {
-	op := options.GlobalOptions()
-	master := op.CurrentMaster()
+	master := leaderselector.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
@@ -53,8 +53,7 @@ func GetServiceToken(ctx context.Context, req *apitypes.GetServiceTokenRequest) 
 }
 
 func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (map[string][]string, error) {
-	op := options.GlobalOptions()
-	master := op.CurrentMaster()
+	master := leaderselector.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
@@ -75,8 +74,7 @@ func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (map[s
 
 // GetManifest get manifest from master
 func GetManifest(ctx context.Context, req *apitypes.GetManifestRequest) (string, string, error) {
-	op := options.GlobalOptions()
-	master := op.CurrentMaster()
+	master := leaderselector.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	body, err := httputils.SendHTTPRequest(newCtx, &httputils.HTTPRequest{
@@ -98,8 +96,7 @@ func GetManifest(ctx context.Context, req *apitypes.GetManifestRequest) (string,
 // DownloadLayerFromMaster download layer from master
 func DownloadLayerFromMaster(ctx context.Context, req *apitypes.DownloadLayerRequest, digest string) (
 	*apitypes.DownloadLayerResponse, string, error) {
-	op := options.GlobalOptions()
-	master := op.CurrentMaster()
+	master := leaderselector.CurrentMaster()
 	body, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
 		Url:    fmt.Sprintf("http://%s%s", master, apitypes.APIGetLayerInfo),
 		Method: http.MethodPost,

@@ -1,0 +1,79 @@
+replicaCount: 1
+
+image:
+  repository: accelerboat/squid
+  pullPolicy: IfNotPresent
+  tag: "5.2-22.04_beta"
+
+imagePullSecrets: []
+
+# This is to override the chart name.
+fullnameOverride: "accelerboat-squid"
+
+# 用户自行设置资源
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+# 用户自行设定运行的 Node
+nodeSelector: {}
+
+tolerations: []
+
+# 设定 Pod 实例在每个节点上互斥
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: accelerboat-squid
+        topologyKey: "kubernetes.io/hostname"
+
+# 用户自行设定是否为 true
+hostNetwork: true
+
+# 默认配置文件，用户自行修改
+squidConf: |+
+  acl all src all 
+  http_access allow all
+  http_port 2088
+  cache_dir ufs /var/spool/squid 100 16 256
+  forwarded_for on
+
+service:
+  type: ClusterIP
+  port: 2088
+
+# Additional volumes on the output Deployment definition.
+volumes:
+  - name: squid-conf
+    configMap:
+      name: squid-conf
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts:
+  - name: squid-conf
+    mountPath: /etc/squid/squid.conf
+    subPath: squid.conf
+
+# This is for setting Kubernetes Annotations to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
+podAnnotations: {}
+# This is for setting Kubernetes Labels to a Pod.
+# For more information checkout: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000

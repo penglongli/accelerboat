@@ -1,0 +1,68 @@
+{{- $isStandalone := eq .Values.runtime "standalone" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: accelerboat-config
+  namespace: {{ .Release.Namespace }}
+data:
+  accelerboat.json: |
+    {
+      "httpPort": {{ .Values.env.httpPort }},
+      "httpsPort": {{ .Values.env.httpsPort }},
+      "metricPort": {{ .Values.env.metricPort }},
+      "torrentPort": {{ .Values.env.torrentPort }},
+      "logConfig": {
+        "logDir": "{{ .Values.env.logDir }}",
+        "logMaxSize": {{ .Values.env.logMaxSize }},
+        "logMaxBackups": {{ .Values.env.logMaxBackups }},
+        "logMaxAge": {{ .Values.env.logMaxAge }}
+      },
+      "storageConfig": {
+        "downloadPath":  {{ .Values.env.downloadPath }},
+        "torrentPath": "{{ .Values.env.torrentPath }},
+        "transferPath": "{{ .Values.env.transferPath }},
+        "smallFilePath": "{{ .Values.env.smallFilePath }}",
+        "ociPath": "{{ .Values.env.ociPath }}",
+        "eventFile": "{{ .Values.env.eventFile }}"
+      },
+      "cleanConfig": {
+        "cron": "{{ .Values.env.cleanCron }}",
+        "threshold": {{ .Values.env.cleanThreshold }},
+        "retainDays": {{ .Values.env.cleanRetainDays }}
+      },
+      "serviceDiscovery": {
+        "serviceNamespace": "{{ .Release.Namespace }}",
+        "serviceName": "{{ include "accelerboat.fullname" . }}"
+      },
+      "preferConfig": {
+        "masterIP": "{{ .Values.env.preferMasterIP }}",
+        "preferNodes": {
+          "labelSelectors": "{{ .Values.env.preferLabelSelectors }}"
+        }
+      },
+      {{- if $isStandalone }}
+      "enableContainerd": {{ .Values.env.enableContainerd }},
+      {{- else }}
+      "enableContainerd": false,
+      {{- end }}
+      "torrentConfig": {
+        {{- if $isStandalone }}
+        "enable": {{ .Values.env.enableTorrent }},
+        {{- else }}
+        "enable": false,
+        {{- end }}
+        "threshold": {{ .Values.env.torrentThreshold }},
+        "uploadLimit": {{ .Values.env.torrentUploadLimit }},
+        "downloadLimit": {{ .Values.env.torrentDownloadLimit }},
+        "announce": "{{ .Values.env.torrentAnnounce }}"
+      },
+      "redisAddress": "{{ .Values.env.redisAddress }}",
+      "redisPassword": "{{ .Values.env.redisPassword }}",
+      "externalConfig": {
+        "httpProxy": "{{ .Values.env.httpProxy }}",
+        "builtInCerts": {{- toJson .Values.builtInCerts | nindent 12 }},
+        "registryMappings": {{- toJson .Values.externalConfig.registryMappings | nindent 12 }}
+      }
+    }
+

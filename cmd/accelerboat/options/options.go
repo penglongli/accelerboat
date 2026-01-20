@@ -8,10 +8,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
-	"strings"
 	"time"
-
-	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 // ProxyType defines proxy type
@@ -27,7 +24,7 @@ const (
 // HTTPProxyTransport return the insecure-skip-verify transport
 func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
 	netDialer := &net.Dialer{
-		Timeout:   10 * time.Second,
+		Timeout:   5 * time.Second,
 		KeepAlive: 30 * time.Second,
 	}
 	tp := &http.Transport{
@@ -45,25 +42,6 @@ func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
 	}
 	tp.Proxy = http.ProxyURL(o.ExternalConfig.HTTPProxyUrl)
 	return tp
-}
-
-// CurrentMaster return the current master
-func (o *AccelerBoatOption) CurrentMaster() string {
-	var currentASCII int64 = 0
-	var currentEndpoint string
-	masterIP := o.PreferConfig.MasterIP
-	for i := range o.ServiceDiscovery.Endpoints {
-		ep := o.ServiceDiscovery.Endpoints[i]
-		if masterIP != "" && strings.HasPrefix(ep, masterIP+":") {
-			return ep
-		}
-		ascii := utils.StringASCII(ep)
-		if currentASCII < ascii {
-			currentASCII = ascii
-			currentEndpoint = ep
-		}
-	}
-	return currentEndpoint
 }
 
 // FilterRegistryMapping filter registry mapping

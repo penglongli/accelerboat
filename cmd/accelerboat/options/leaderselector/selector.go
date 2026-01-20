@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +35,7 @@ type PreferNodesConfig struct {
 var (
 	namespace   string
 	serviceName string
+	serverPort  int64
 	preferCfg   *PreferConfig
 	k8sClient   *kubernetes.Clientset
 
@@ -76,9 +76,11 @@ func CurrentMaster() string {
 	return currentEndpoint
 }
 
-func WatchK8sService(ns, name string, preferConfig *PreferConfig, k8sClientset *kubernetes.Clientset) error {
+func WatchK8sService(ns, name string, port int64, preferConfig *PreferConfig,
+	k8sClientset *kubernetes.Clientset) error {
 	namespace = ns
 	serviceName = name
+	serverPort = port
 	preferCfg = preferConfig
 	k8sClient = k8sClientset
 	result, err := getServiceEndpoints()
@@ -212,7 +214,7 @@ func getServiceEndpoints() ([]string, error) {
 	}
 	newResult := make([]string, 0, len(result))
 	for _, ip := range result {
-		newResult = append(newResult, fmt.Sprintf("%s:%d", ip, op.HTTPPort))
+		newResult = append(newResult, fmt.Sprintf("%s:%d", ip, serverPort))
 	}
 	logger.Infof("[master-election] get service endpoints: %d", len(newResult))
 	return newResult, nil

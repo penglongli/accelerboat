@@ -15,12 +15,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/pkg/errors"
 	"github.com/robfig/cron/v3"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/utils"
 )
@@ -46,6 +46,13 @@ func changeOption(op *AccelerBoatOption) {
 			MaxAge:     op.LogConfig.LogMaxAge,
 			MaxBackups: op.LogConfig.LogMaxBackups,
 		})
+
+		// only init for the first time
+		disc := op.ServiceDiscovery
+		if err := leaderselector.WatchK8sService(disc.ServiceNamespace, disc.ServiceName, op.HTTPPort,
+			disc.PreferConfig, op.k8sClient); err != nil {
+			logger.Fatalf("watch k8s service failed: %s", err)
+		}
 		return
 	}
 
@@ -85,9 +92,6 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	}
 	if err = op.checkServiceDiscovery(); err != nil {
 		return nil, errors.Wrapf(err, "check option service discovery failed")
-	}
-	if err = op.checkPreferConfig(); err != nil {
-		return nil, errors.Wrapf(err, "check option prefer config failed")
 	}
 	if err = op.checkTorrentConfig(); err != nil {
 		return nil, errors.Wrapf(err, "check option torrent config failed")
@@ -185,9 +189,15 @@ func (o *AccelerBoatOption) checkServiceDiscovery() error {
 		return fmt.Errorf("service name cannot be empty")
 	}
 	config, err := rest.InClusterConfig()
+	if err != nil {
+		return fmt.Errorf("get in-cluster config failed: %s", err.Error())
+	}
 	o.k8sClient, err = kubernetes.NewForConfig(config)
 	if err != nil {
 		return errors.Wrapf(err, "create kubernetes client failed")
+	}
+	if err = o.checkPreferConfig(); err != nil {
+		return errors.Wrapf(err, "check option prefer config failed")
 	}
 	return nil
 }
@@ -197,13 +207,13 @@ var (
 )
 
 func (o *AccelerBoatOption) checkPreferConfig() error {
-	if o.PreferConfig == nil {
+	if o.ServiceDiscovery.PreferConfig == nil {
 		return nil
 	}
-	if o.PreferConfig.PreferNodes == nil {
+	if o.ServiceDiscovery.PreferConfig.PreferNodes == nil {
 		return nil
 	}
-	selector := o.PreferConfig.PreferNodes.LabelSelectors
+	selector := o.ServiceDiscovery.PreferConfig.PreferNodes.LabelSelectors
 	if selector == "" {
 		return nil
 	}
@@ -238,7 +248,7 @@ func (o *AccelerBoatOption) checkExternalConfig() error {
 		if err = checkNetConnectivity(o.ExternalConfig.HTTPProxy); err != nil {
 			return errors.Wrapf(err, "check http_proxy connectivity failed")
 		}
-		blog.Infof("set http_proxy '%s' success", o.ExternalConfig.HTTPProxy)
+		logger.Infof("set http_proxy '%s' success", o.ExternalConfig.HTTPProxy)
 	}
 	return nil
 }

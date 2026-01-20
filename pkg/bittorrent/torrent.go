@@ -16,10 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"fmt"
-	"io"
 	"io/fs"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -27,14 +24,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Tencent/bk-bcs/bcs-common/common/blog"
 	"github.com/anacrolix/torrent"
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/pkg/errors"
 	"golang.org/x/time/rate"
-	log "k8s.io/klog/v2"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
@@ -56,22 +51,6 @@ type TorrentHandler struct {
 	torrentCache *sync.Map
 
 	semaphore chan struct{}
-}
-
-func (th *TorrentHandler) storeTorrent(ctx context.Context, digest string, clientMagnet string) {
-	th.Lock()
-	defer th.Unlock()
-	if err := th.cacheStore.SaveTorrent(ctx, digest, clientMagnet); err != nil {
-		blog.Errorf("store torrent '%s' to cache-store failed: %s", digest, err.Error())
-	}
-}
-
-func (th *TorrentHandler) delTorrent(digest string) {
-	th.Lock()
-	defer th.Unlock()
-	if err := th.cacheStore.DeleteTorrent(context.Background(), digest); err != nil {
-		blog.Warnf("delete torrent '%s' from cache-store failed: %s", digest, err.Error())
-	}
 }
 
 // NewTorrentHandler create the torrent handler instance
@@ -125,98 +104,6 @@ func (th *TorrentHandler) Init() error {
 	return nil
 }
 
-// GetClient get the torrent client
-func (th *TorrentHandler) GetClient() *torrent.Client {
-	return th.client
-}
-
-// TickReport tick report the torrent cache
-func (th *TorrentHandler) TickReport(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-	defer th.pc.Close()
-	defer func() {
-		_, torrentStrings := th.returnLocalTorrents(ctx)
-		for k := range torrentStrings {
-			_ = th.cacheStore.DeleteTorrent(context.Background(), k)
-		}
-	}()
-	//for {
-	//      select {
-	//      case <-ticker.C:
-	//              _, torrentStrings := th.returnLocalTorrents(ctx)
-	//              th.torrentCache.Range(func(k, v interface{}) bool {
-	//                      digest := k.(string)
-	//                      torrentBase64, ok := torrentStrings[digest]
-	//                      if !ok {
-	//                              return true
-	//                      }
-	//                      if err := th.cacheStore.SaveTorrent(ctx, digest, torrentBase64); err != nil {
-	//                              blog.Errorf("torrent cache save to cache-store for digest '%s' failed: %s",
-	//                                      digest, err.Error())
-	//                      }
-	//                      return true
-	//              })
-	//      case <-ctx.Done():
-	//              return
-	//      }
-	//}
-
-	inactiveMap := make(map[string][]struct{})
-	torrentMap := make(map[string]*torrent.Torrent)
-	for {
-		select {
-		case <-ticker.C:
-			ts := th.client.Torrents()
-			if len(ts) == 0 {
-				continue
-			}
-			torrentStats := make([]string, 0)
-			for _, t := range ts {
-				if t == nil {
-					continue
-				}
-				ti := t.Info()
-				if ti == nil {
-					continue
-				}
-				digest := ti.Name
-				torrentMap[digest] = t
-				activePeers := t.Stats().ActivePeers
-				pendingPeers := t.Stats().PendingPeers
-				totalPeers := t.Stats().TotalPeers
-				seeders := t.Stats().ConnectedSeeders
-				halfPeers := t.Stats().HalfOpenPeers
-				torrentStats = append(torrentStats, fmt.Sprintf(
-					"torrent '%s' stats: TotalPeers(%d), PendingPeers(%d), ActivePeers(%d), "+
-						"ConnectedSeeders(%d), HalfOpenPeers(%d)", digest, totalPeers, pendingPeers,
-					activePeers, seeders, halfPeers))
-				if activePeers == 0 && pendingPeers == 0 && totalPeers == 0 && halfPeers == 0 && seeders == 0 {
-					inactiveMap[digest] = append(inactiveMap[digest], struct{}{})
-				} else {
-					inactiveMap[digest] = make([]struct{}, 0)
-				}
-			}
-			log.Infof("report torrent status: %v", torrentStats)
-			for digest, v := range inactiveMap {
-				// 如果连续 30 个点位都没有任何链接，就判断 torrent 非活跃
-				if len(v) < 30 {
-					continue
-				}
-				tmpTo := torrentMap[digest]
-				if tmpTo == nil {
-					continue
-				}
-				th.delTorrent(digest)
-				tmpTo.Drop()
-				delete(inactiveMap, digest)
-				log.Infof("check torrent '%s' inactive, delete it from cache", digest)
-			}
-		case <-ctx.Done():
-		}
-	}
-}
-
 func (th *TorrentHandler) getLayerFiles(path string) ([]string, error) {
 	layerFiles := make([]string, 0)
 	if err := filepath.Walk(path, func(fp string, info fs.FileInfo, err error) error {
@@ -233,25 +120,6 @@ func (th *TorrentHandler) getLayerFiles(path string) ([]string, error) {
 	return layerFiles, nil
 }
 
-func (th *TorrentHandler) copySourceToTorrent(sourceFile, digest string) (string, error) {
-	torrentFile := path.Join(th.op.StorageConfig.TorrentPath, utils.LayerFileName(digest))
-	_ = os.RemoveAll(torrentFile)
-	torrentFi, err := os.Create(torrentFile)
-	if err != nil {
-		return torrentFile, errors.Wrapf(err, "create torrent file '%s' failed", torrentFile)
-	}
-	defer torrentFi.Close()
-	source, err := os.Open(sourceFile)
-	if err != nil {
-		return torrentFile, errors.Wrapf(err, "open source file '%s' failed", sourceFile)
-	}
-	defer source.Close()
-	if _, err = io.Copy(torrentFi, source); err != nil {
-		return torrentFile, errors.Wrapf(err, "copy source file '%s' to '%s' failed", sourceFile, torrentFile)
-	}
-	return torrentFile, nil
-}
-
 // GenerateTorrent generate the file to torrent
 func (th *TorrentHandler) GenerateTorrent(ctx context.Context, digest, sourceFile string) (string, error) {
 	th.torrentLock.Lock(ctx, digest)
@@ -263,11 +131,12 @@ func (th *TorrentHandler) GenerateTorrent(ctx context.Context, digest, sourceFil
 	}
 
 	// copy source-file to torrent path
-	torrentFile, err := th.copySourceToTorrent(sourceFile, digest)
-	if err != nil {
+	torrentFile := path.Join(th.op.StorageConfig.TorrentPath, utils.LayerFileName(digest))
+	if err := utils.CopyFile(sourceFile, torrentFile); err != nil {
 		return "", err
 	}
 	var serveTo *torrent.Torrent
+	var err error
 	generateRetry := 3
 	for i := 0; i < generateRetry; i++ {
 		serveTo, err = th.generateServeTorrent(ctx, digest, torrentFile)
@@ -293,12 +162,8 @@ func (th *TorrentHandler) GenerateTorrent(ctx context.Context, digest, sourceFil
 	if err = serveMi.Write(&buffer); err != nil {
 		return "", errors.Wrapf(err, "get torrent bytes failed")
 	}
-
-	th.torrentCache.Store(digest, serveTo)
 	torrentBase64 = base64.StdEncoding.EncodeToString(buffer.Bytes())
-	logger.InfoContextf(ctx, "generate serve torrent success: (too long)")
-	th.storeTorrent(ctx, digest, torrentBase64)
-
+	logger.InfoContextf(ctx, "generate serve torrent success")
 	return torrentBase64, nil
 }
 
@@ -384,34 +249,6 @@ func (th *TorrentHandler) gotTorrentInfo(t *torrent.Torrent) error {
 	}
 }
 
-func waitForPieces(ctx context.Context, t *torrent.Torrent, beginIndex, endIndex int) {
-	sub := t.SubscribePieceStateChanges()
-	defer sub.Close()
-	expected := storage.Completion{
-		Complete: true,
-		Ok:       true,
-	}
-	pending := make(map[int]struct{})
-	for i := beginIndex; i < endIndex; i++ {
-		if t.Piece(i).State().Completion != expected {
-			pending[i] = struct{}{}
-		}
-	}
-	for {
-		if len(pending) == 0 {
-			return
-		}
-		select {
-		case ev := <-sub.Values:
-			if ev.Completion == expected {
-				delete(pending, ev.Index)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
 // DownloadTorrent download the file by torrent
 func (th *TorrentHandler) DownloadTorrent(ctx context.Context, digest, torrentBase64, targetPath string) error {
 	if err := th.downloadTorrent(ctx, digest, torrentBase64); err != nil {
@@ -428,10 +265,10 @@ func (th *TorrentHandler) DownloadTorrent(ctx context.Context, digest, torrentBa
 	}
 	logger.InfoContextf(ctx, "torrent file '%s' is normal, logical: %d, physical: %d",
 		torrentFile, logical, physical)
-	if err = os.Rename(torrentFile, targetPath); err != nil {
-		return errors.Wrapf(err, "rename torrent file %s to %s failed", torrentFile, targetPath)
+	if err = utils.CopyFile(torrentFile, targetPath); err != nil {
+		return err
 	}
-	logger.InfoContextf(ctx, "rename torrent file %s to %s success", torrentFile, targetPath)
+	logger.InfoContextf(ctx, "copy torrent file %s to %s success", torrentFile, targetPath)
 	return nil
 }
 
@@ -451,13 +288,7 @@ func (th *TorrentHandler) downloadTorrent(ctx context.Context, digest, torrentBa
 	if err = th.gotTorrentInfo(t); err != nil {
 		return err
 	}
-	defer func() {
-		if _, ok := th.torrentCache.Load(digest); ok {
-			return
-		}
-		// drop torrent after download, if dest-file not exist in local
-		// t.Drop()
-	}()
+
 	// ignore chunk error
 	t.SetOnWriteChunkError(func(err error) {})
 	th.semaphore <- struct{}{}
@@ -514,7 +345,7 @@ func (th *TorrentHandler) downloadTorrent(ctx context.Context, digest, torrentBa
 				if len(completedSlice) > noSpeedPoints {
 					oldPieces := completedSlice[len(completedSlice)-noSpeedPoints]
 					if currentBytes == oldPieces {
-						return true, 0, errors.Errorf("download torrent no speed")
+						return errors.Errorf("download torrent no speed")
 					}
 				}
 			}

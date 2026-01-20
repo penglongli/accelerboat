@@ -5,12 +5,17 @@
 package main
 
 import (
+	"context"
 	"flag"
-	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
+	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/server"
 )
 
 var (
@@ -34,4 +39,22 @@ func main() {
 		panic(errors.Wrapf(err, "create options watcher failed"))
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		interrupt := make(chan os.Signal, 10)
+		signal.Notify(interrupt, syscall.SIGINT, syscall.SIGKILL, syscall.SIGTERM,
+			syscall.SIGUSR1, syscall.SIGUSR2)
+		for s := range interrupt {
+			logger.Infof("Received signal %v from system. Exit!", s)
+			cancel()
+			return
+		}
+	}()
+	svr := server.NewAccelerboatServer(ctx, op, opWatcher)
+	if err = svr.Init(); err != nil {
+		logger.Fatalf("server init failed: %v", err)
+	}
+	if err = svr.Run(); err != nil {
+		logger.Errorf("server exit: %s", err.Error())
+	}
 }

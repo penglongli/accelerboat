@@ -1,0 +1,119 @@
+{{- $isStandalone := eq .Values.runtime "standalone" }}
+apiVersion: apps/v1
+{{- if $isStandalone }}
+kind: DaemonSet
+{{- else }}
+kind: Deployment
+{{- end }}
+metadata:
+  name: {{ include "accelerboat.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "accelerboat.labels" . | nindent 4 }}
+spec:
+  {{- if $isStandalone }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 100%
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "accelerboat.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "accelerboat.labels" . | nindent 8 }}
+       {{- with .Values.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "accelerboat.fullname" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ include "accelerboat.fullname" . }}
+          command:
+            - /data/accelerboat/accelerboat
+          args:
+            - -f
+            - /data/accelerboat/config/accelerboat.json
+          env:
+            - name: localIP
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: status.podIP
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.env.httpPort }}
+            - name: https
+              containerPort: {{ .Values.env.httpsPort }}
+            - name: metric
+              containerPort: {{ .Values.env.metricPort }}
+            - name: torrent
+              containerPort: {{ .Values.env.torrentPort }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /data/accelerboat/config
+          {{- if $isStandalone }}
+            {{- with .Values.standalone.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- if and $isStandalone .Values.env.enableContainerd }}
+            {{- with .Values.containerd.volumeMounts }}
+              {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: accelerboat-config
+      {{- if $isStandalone }}
+        {{- with .Values.standalone.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- if and $isStandalone .Values.env.enableContainerd }}
+        {{- with .Values.containerd.volumes }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      restartPolicy: Always
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet

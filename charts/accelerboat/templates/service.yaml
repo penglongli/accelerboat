@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "accelerboat.fullname" . }}
+  labels:
+    {{- include "accelerboat.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.env.httpPort }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.env.httpsPort }}
+      targetPort: https
+      protocol: TCP
+      name: https
+    - port: {{ .Values.env.metricPort }}
+      targetPort: metric
+      protocol: TCP
+      name: metric
+    - port: {{ .Values.env.torrentPort }}
+      targetPort: torrent
+      protocol: TCP
+      name: torrent
+  selector:
+    {{- include "accelerboat.selectorLabels" . | nindent 4 }}

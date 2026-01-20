@@ -68,6 +68,7 @@ func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 					ch <- opc
 				}
 			case <-ctx.Done():
+				close(ch)
 				return
 			}
 		}

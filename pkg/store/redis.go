@@ -49,6 +49,7 @@ type LayerLocatedInfo struct {
 // CacheStore defines the interface of cache store
 type CacheStore interface {
 	SaveOCILayer(ctx context.Context, ociType LayerType, layer, filePath string) error
+	DeleteOCILayer(ctx context.Context, ociType LayerType, layer string) error
 	SaveStaticLayer(ctx context.Context, layer, filePath string, printLog bool) error
 	DeleteStaticLayer(ctx context.Context, layer string) error
 	QueryLayers(ctx context.Context, layer string) ([]*LayerLocatedInfo, []*LayerLocatedInfo, error)
@@ -119,6 +120,15 @@ func (r *RedisStore) SaveOCILayer(ctx context.Context, ociType LayerType, layer,
 	return nil
 }
 
+// DeleteOCILayer delete the oci layers
+func (r *RedisStore) DeleteOCILayer(ctx context.Context, ociType LayerType, layer string) error {
+	key := r.buildLayerKey(ociType)
+	if err := r.redisClient.HDel(ctx, layer, key).Err(); err != nil {
+		return errors.Wrapf(err, "redis del key '%s' failed", key)
+	}
+	return nil
+}
+
 // SaveStaticLayer save static layer
 func (r *RedisStore) SaveStaticLayer(ctx context.Context, layer string, filePath string, printLog bool) error {
 	key := r.buildLayerKey(StaticFile)
@@ -139,7 +149,6 @@ func (r *RedisStore) DeleteStaticLayer(ctx context.Context, layer string) error 
 	if err := r.redisClient.HDel(ctx, layer, key).Err(); err != nil {
 		return errors.Wrapf(err, "redis del key '%s' failed", key)
 	}
-	r.localCache.Delete(layer)
 	return nil
 }
 

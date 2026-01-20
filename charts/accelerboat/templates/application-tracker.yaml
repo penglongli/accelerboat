@@ -1,0 +1,66 @@
+{{- $isStandalone := eq .Values.runtime "standalone" }}
+
+{{- if $isStandalone }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.tracker.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Values.tracker.name }}
+      app.kubernetes.io/name: {{ .Values.tracker.name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Values.tracker.name }}
+        app.kubernetes.io/name: {{ .Values.tracker.name }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.tracker.name }}
+          command: ["/chihaya"]
+          args:
+            - --config
+            - /config.yaml
+          image: "{{ .Values.tracker.image.repository }}:{{ .Values.tracker.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.tracker.image.pullPolicy }}
+          resources:
+            {{- toYaml .Values.tracker.resources | nindent 12 }}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      {{- with .Values.tracker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tracker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tracker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.tracker.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: announce
+      port: 6969
+      protocol: UDP
+      targetPort: 6969
+  selector:
+    app.kubernetes.io/instance: {{ .Values.tracker.name }}
+    app.kubernetes.io/name: {{ .Values.tracker.name }}
+  type: ClusterIP
+{{- end }}
