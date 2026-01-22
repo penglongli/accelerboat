@@ -6,8 +6,4 @@ package common
 
 const (
 	RequestIDHeaderKey = "X-Request-ID"
-	// TwentyMB 20MB
-	TwentyMB int64 = 20971520
-	// TwoHundredMB 200MB
-	TwoHundredMB int64 = 209715200
 )

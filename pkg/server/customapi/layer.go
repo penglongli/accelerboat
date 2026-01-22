@@ -11,15 +11,18 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sort"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
 	"github.com/penglongli/accelerboat/pkg/logger"
-	"github.com/penglongli/accelerboat/pkg/server/common"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
+	"github.com/penglongli/accelerboat/pkg/store"
 	"github.com/penglongli/accelerboat/pkg/utils"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
 	"github.com/penglongli/accelerboat/pkg/utils/httputils"
@@ -76,7 +79,7 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 
 	logger.WarnContextf(ctx, "check layer has cached failed: %s", err.Error())
 	// master should download directly if small layer
-	if contentLength < common.TwentyMB {
+	if contentLength < options.TwentyMB {
 		resultPath := path.Join(h.op.StorageConfig.SmallFilePath, utils.LayerFileName(req.Digest))
 		if err = h.requestDownloadLayer(ctx, req, resultPath); err != nil {
 			return nil, fmt.Errorf("download small-layer from original registry '%s/%s' failed",
@@ -95,12 +98,29 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
+func sortLayerCache(layers []*store.LayerLocatedInfo, refer map[string]int64) []*store.LayerLocatedInfo {
+	for _, layer := range layers {
+		if _, ok := refer[layer.Located]; ok {
+			layer.Refer = refer[layer.Located]
+		}
+	}
+	sort.Slice(layers, func(i, j int) bool {
+		return layers[i].Refer < layers[j].Refer
+	})
+	return layers
+}
+
 func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.DownloadLayerRequest,
 	contentLength int64) (*apitypes.DownloadLayerResponse, error) {
 	staticLayers, ociLayers, err := h.cacheStore.QueryLayers(ctx, req.Digest)
 	if err != nil {
 		return nil, errors.Wrapf(err, "query layers from cache store failed")
 	}
+
+	if h.staticLayerRefer[req.Digest] == nil {
+		h.staticLayerRefer[req.Digest] = make(map[string]int64)
+	}
+	staticLayers = sortLayerCache(staticLayers, h.staticLayerRefer[req.Digest])
 	for _, sl := range staticLayers {
 		logger.InfoContextf(ctx, "check static layer '%s, %s' starting", sl.Located, sl.Data)
 		var resp *apitypes.CheckStaticLayerResponse
@@ -113,9 +133,13 @@ func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.D
 		}); err != nil {
 			logger.ErrorContextf(ctx, "check static layer '%s, %s' failed: %s",
 				sl.Located, sl.Data, err.Error())
+			if err = h.cacheStore.DeleteLocatedStaticLayer(ctx, sl.Located, req.Digest); err != nil {
+				logger.WarnContextf(ctx, "delete static layer cache failed: %s", err.Error())
+			}
 			continue
 		}
 		logger.InfoContextf(ctx, "check static layer '%s, %s' success", sl.Located, sl.Data)
+		h.staticLayerRefer[req.Digest][sl.Located]++
 		return &apitypes.DownloadLayerResponse{
 			TorrentBase64: resp.TorrentBase64,
 			Located:       resp.Located,
@@ -123,6 +147,11 @@ func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.D
 			FilePath:      resp.LayerPath,
 		}, nil
 	}
+
+	if h.ociLayerRefer[req.Digest] == nil {
+		h.ociLayerRefer[req.Digest] = make(map[string]int64)
+	}
+	ociLayers = sortLayerCache(ociLayers, h.ociLayerRefer[req.Digest])
 	for _, ocil := range ociLayers {
 		logger.InfoContextf(ctx, "check oci-layer '%s, %s' starting'", ocil.Located, ocil.Data)
 		var resp *apitypes.CheckOCILayerResponse
@@ -134,6 +163,7 @@ func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.D
 				ocil.Located, ocil.Data, err.Error())
 			continue
 		}
+		h.ociLayerRefer[req.Digest][ocil.Located]++
 		return &apitypes.DownloadLayerResponse{
 			TorrentBase64: resp.TorrentBase64,
 			Located:       resp.Located,
@@ -169,10 +199,7 @@ func (h *CustomHandler) distributeNode() string {
 	h.nodeDownloadLock.Lock()
 	defer h.nodeDownloadLock.Unlock()
 
-	if h.nodeDownloadTasks == nil {
-		h.nodeDownloadTasks = make(map[string]int)
-	}
-	eps := h.op.ServiceDiscovery.Endpoints
+	eps := leaderselector.Endpoints()
 	epMap := make(map[string]struct{})
 	for _, ep := range eps {
 		epMap[ep] = struct{}{}
@@ -226,7 +253,7 @@ func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 		FileSize: fileSize,
 	}
 
-	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold {
+	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold*options.MB {
 		return resp, nil
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)

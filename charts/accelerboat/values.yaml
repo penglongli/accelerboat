@@ -86,6 +86,7 @@ externalConfig:
   # - proxyHost: "代理的域名（也即上述申的指向 127.0.0.1 的域名，如：docker-registry.myprivate.com）"
   #   proxyCert: "代理域名的证书 base64（没有可以不填，需要用户配置 OCI 的 insecure-registry）"
   #   proxyKey: "代理域名的证书 base64（没有可以不填）"
+  #   enable: "true"
   #   originalHost: "源仓库的域名（如：mirrors.tencent.com）"
   #   username: "源仓库的用户名"
   #   password: "源仓库的密码"

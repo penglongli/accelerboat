@@ -6,10 +6,8 @@ package options
 
 import (
 	"context"
-	"path/filepath"
-
-	"github.com/fsnotify/fsnotify"
-	"github.com/pkg/errors"
+	"os"
+	"time"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/utils"
@@ -24,49 +22,42 @@ type OptionChangeWatcher interface {
 	Watch(ctx context.Context) <-chan *OptionChanges
 }
 
-func NewChangeWatcher(cfgPath string) (OptionChangeWatcher, error) {
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, errors.Wrapf(err, "create option watcher failed")
-	}
-	configFileDir := filepath.Dir(cfgPath)
-	err = watcher.Add(configFileDir)
-	if err != nil {
-		return nil, errors.Wrapf(err, "add config filepath %s failed", cfgPath)
-	}
-	logger.Infof("config file path '%s' is added to watcher", cfgPath)
+func NewChangeWatcher(cfgPath string) OptionChangeWatcher {
 	return &optionChangeHandler{
 		cfgPath: cfgPath,
-		watcher: watcher,
-	}, nil
+	}
 }
 
 type optionChangeHandler struct {
 	cfgPath string
-	watcher *fsnotify.Watcher
 }
 
 func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 	ch := make(chan *OptionChanges)
 	go func() {
+		ticker := time.NewTicker(10 * time.Second)
 		defer func() {
-			o.watcher.Close()
+			ticker.Stop()
 			logger.Infof("option change watcher closed")
 		}()
+		bs, _ := os.ReadFile(o.cfgPath) // nolint
+		prevContent := utils.BytesToString(bs)
 		for {
 			select {
-			case event, ok := <-o.watcher.Events:
-				if !ok {
-					return
+			case <-ticker.C:
+				bs, _ = os.ReadFile(o.cfgPath)
+				currentContent := utils.BytesToString(bs)
+				if prevContent == currentContent {
+					continue
 				}
-				if event.Op&fsnotify.Write == fsnotify.Write && event.Name == o.cfgPath {
-					opc := o.handleFileChanged()
-					if opc == nil {
-						continue
-					}
-					logger.Infof("config file '%s' is modified", o.cfgPath)
-					ch <- opc
+				prevContent = currentContent
+				opc := o.handleFileChanged()
+				if opc == nil {
+					continue
 				}
+				logger.Infof("config file '%s' is modified", o.cfgPath)
+				ch <- opc
+
 			case <-ctx.Done():
 				close(ch)
 				return
@@ -77,12 +68,10 @@ func (o *optionChangeHandler) Watch(ctx context.Context) <-chan *OptionChanges {
 }
 
 func (o *optionChangeHandler) handleFileChanged() *OptionChanges {
-	newOp, err := Parse(o.cfgPath)
-	if err != nil {
+	if _, err := Parse(o.cfgPath, false); err != nil {
 		logger.Errorf("parse config file failed: %s", err.Error())
 		return nil
 	}
-	changeOption(newOp)
 	prevOp := &AccelerBoatOption{}
 	currentOp := &AccelerBoatOption{}
 	_ = utils.DeepCopyStruct(prev, prevOp)

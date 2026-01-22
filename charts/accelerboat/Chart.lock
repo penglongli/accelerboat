@@ -1,0 +1,9 @@
+dependencies:
+- name: redis
+  repository: file://charts/redis
+  version: 21.2.13
+- name: squid
+  repository: file://charts/squid
+  version: 0.1.0
+digest: sha256:3bff814cda1dc73be8959f9986ed9ad40fa85af956998df4028d84876479a8f6
+generated: "2026-01-20T19:25:38.501676+08:00"

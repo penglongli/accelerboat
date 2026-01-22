@@ -46,8 +46,9 @@ type ScanHandler struct {
 func NewScanHandler() *ScanHandler {
 	op := options.GlobalOptions()
 	return &ScanHandler{
-		op:         op,
-		cacheStore: store.GlobalRedisStore(),
+		op:               op,
+		cacheStore:       store.GlobalRedisStore(),
+		containerdLayers: make(map[string]string),
 	}
 }
 
@@ -76,10 +77,19 @@ func (s *ScanHandler) TickerReport(ctx context.Context) {
 func (s *ScanHandler) reportOCILayers(ctx context.Context) {
 	if s.cc != nil {
 		layers := s.cc.Parse(ctx)
-		s.containerdLayers = layers
 		for k, v := range layers {
 			if err := s.cacheStore.SaveOCILayer(ctx, store.CONTAINERD, k, v); err != nil {
-				logger.Errorf(err.Error())
+				logger.Errorf("save oci layer '%s' failed: %s", k, err.Error())
+			}
+		}
+		for k := range s.containerdLayers {
+			if _, ok := layers[k]; ok {
+				continue
+			}
+			if err := s.cacheStore.DeleteOCILayer(ctx, store.CONTAINERD, k); err != nil {
+				logger.Errorf("delete oci layer '%s' failed: %s", k, err.Error())
+			} else {
+				logger.Infof("delete oci layer '%s' success", k)
 			}
 		}
 	}

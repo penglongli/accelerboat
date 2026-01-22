@@ -61,15 +61,16 @@ func (s *AccelerboatServer) Init() error {
 	if err := s.torrentHandler.Init(); err != nil {
 		return err
 	}
-	s.initHTTPRouter()
 	s.ociScanner = ociscan.NewScanHandler()
 	if err := s.ociScanner.Init(); err != nil {
 		return err
 	}
+	logger.Infof("oci scanner init completed")
 	s.staticWatcher = staticwatcher.NewStaticFileWatcher()
 	if err := s.staticWatcher.Init(s.globalCtx); err != nil {
 		return err
 	}
+	s.initHTTPRouter()
 	return nil
 }
 
@@ -78,13 +79,10 @@ func (s *AccelerboatServer) initHTTPRouter() {
 	ginSvr.Use(gin.Recovery())
 	ginSvr.UseRawPath = true
 	gin.SetMode(gin.ReleaseMode)
-	ginSvr.Use(middleware.CommonMiddleware())
+	ginSvr.Use(middleware.GinMiddleware())
 	pprof.Register(ginSvr)
-	ch := customapi.NewCustomHandler(s.op)
+	ch := customapi.NewCustomHandler(s.op, s.torrentHandler, s.ociScanner)
 	ch.Register(ginSvr)
-	ginSvr.NoRoute(func(c *gin.Context) {
-		s.ServeHTTP(c.Writer, c.Request)
-	})
 	s.ginSvr = ginSvr
 }
 
@@ -117,8 +115,9 @@ func (s *AccelerboatServer) runHTTPServer(errCh chan error) {
 	serverAddr := fmt.Sprintf("0.0.0.0:%d", s.op.HTTPPort)
 	s.httpServer = &http.Server{
 		Addr:    serverAddr,
-		Handler: s.ginSvr,
+		Handler: s,
 	}
+	logger.Infof("http server listening on %s", serverAddr)
 	if err := s.httpServer.ListenAndServe(); err != nil && !syserrors.Is(err, http.ErrServerClosed) {
 		logger.Errorf("failed to start http server: %s", err.Error())
 		return
@@ -151,15 +150,17 @@ func (s *AccelerboatServer) runHTTPSServer(errCh chan error) {
 			errCh <- fmt.Errorf("generate tls cert for '%s' failed: %s", mp.ProxyHost, err.Error())
 			return
 		}
+		logger.Infof("load tls cert, host: %s, original: %s", mp.ProxyHost, mp.OriginalHost)
 		tlsCerts = append(tlsCerts, kp)
 	}
 	s.httpSServer = &http.Server{
 		Addr:    serverAddr,
-		Handler: s.ginSvr,
+		Handler: s,
 		TLSConfig: &tls.Config{
 			Certificates: tlsCerts,
 		},
 	}
+	logger.Infof("http(s) server listening on %s", serverAddr)
 	if err = s.httpSServer.ListenAndServeTLS("", ""); err != nil &&
 		!syserrors.Is(err, http.ErrServerClosed) {
 		errCh <- err
@@ -171,12 +172,14 @@ func (s *AccelerboatServer) runHTTPSServer(errCh chan error) {
 
 func (s *AccelerboatServer) runOCITickReporter(errCh chan error) {
 	defer logger.Warnf("oci tick reporter exit")
+	logger.Infof("oci reporter started")
 	s.ociScanner.TickerReport(s.globalCtx)
 	errCh <- nil
 }
 
 func (s *AccelerboatServer) runStaticFilesWatcher(errCh chan error) {
 	defer logger.Warnf("static-files watcher exit")
+	logger.Infof("static-files watcher started")
 	if err := s.staticWatcher.Watch(s.globalCtx); err != nil {
 		logger.Errorf("static-files watcher exit with err: %s", err.Error())
 		errCh <- err
@@ -188,6 +191,7 @@ func (s *AccelerboatServer) runStaticFilesWatcher(errCh chan error) {
 func (s *AccelerboatServer) runOptionFileWatcher(errCh chan error) {
 	defer logger.Warnf("option watcher exit")
 	ch := s.opWatcher.Watch(s.globalCtx)
+	logger.Infof("option watcher started")
 L:
 	for {
 		select {
@@ -218,6 +222,14 @@ const (
 )
 
 func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	for _, v := range s.ginSvr.Routes() {
+		if req.URL.Path == v.Path && req.Method == v.Method {
+			s.ginSvr.ServeHTTP(rw, req)
+			return
+		}
+	}
+
+	req = middleware.GeneralMiddleware(rw, req)
 	ctx := req.Context()
 	hosts := strings.Split(req.Host, ":")
 	if len(hosts) != 2 {

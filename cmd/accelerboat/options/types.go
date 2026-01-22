@@ -129,13 +129,12 @@ type ExternalConfig struct {
 }
 
 type ServiceDiscovery struct {
-	ServiceNamespace string   `json:"serviceNamespace"`
-	ServiceName      string   `json:"serviceName"`
-	Endpoints        []string `json:"-"`
+	ServiceNamespace string `json:"serviceNamespace"`
+	ServiceName      string `json:"serviceName"`
 
 	// PreferConfig with the priority configuration strategy, users can specify the Master node
 	// and designate certain nodes as preferred roles.
-	PreferConfig *leaderselector.PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
+	PreferConfig leaderselector.PreferConfig `json:"preferConfig" value:"" usage:"prefer config"`
 }
 
 // CleanConfig defines the clean config

@@ -19,9 +19,9 @@ data:
         "logMaxAge": {{ .Values.env.logMaxAge }}
       },
       "storageConfig": {
-        "downloadPath":  {{ .Values.env.downloadPath }},
-        "torrentPath": "{{ .Values.env.torrentPath }},
-        "transferPath": "{{ .Values.env.transferPath }},
+        "downloadPath":  "{{ .Values.env.downloadPath }}",
+        "torrentPath": "{{ .Values.env.torrentPath }}",
+        "transferPath": "{{ .Values.env.transferPath }}",
         "smallFilePath": "{{ .Values.env.smallFilePath }}",
         "ociPath": "{{ .Values.env.ociPath }}",
         "eventFile": "{{ .Values.env.eventFile }}"
@@ -55,9 +55,9 @@ data:
         "threshold": {{ .Values.env.torrentThreshold }},
         "uploadLimit": {{ .Values.env.torrentUploadLimit }},
         "downloadLimit": {{ .Values.env.torrentDownloadLimit }},
-        "announce": "{{ .Values.env.torrentAnnounce }}"
+        "announce": "{{ tpl .Values.env.torrentAnnounce . }}"
       },
-      "redisAddress": "{{ .Values.env.redisAddress }}",
+      "redisAddress": "{{ tpl .Values.env.redisAddress . }}",
       "redisPassword": "{{ .Values.env.redisPassword }}",
       "externalConfig": {
         "httpProxy": "{{ .Values.env.httpProxy }}",

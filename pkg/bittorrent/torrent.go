@@ -85,12 +85,12 @@ func (th *TorrentHandler) Init() error {
 	clientConfig.DisableAcceptRateLimiting = true
 	clientConfig.AcceptPeerConnections = true
 	if th.op.TorrentConfig.UploadLimit > 0 {
-		clientConfig.UploadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.UploadLimit),
-			int(th.op.TorrentConfig.UploadLimit))
+		clientConfig.UploadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.UploadLimit*options.MB),
+			2*int(th.op.TorrentConfig.UploadLimit*options.MB))
 	}
 	if th.op.TorrentConfig.DownloadLimit > 0 {
-		clientConfig.DownloadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.DownloadLimit),
-			int(th.op.TorrentConfig.DownloadLimit))
+		clientConfig.DownloadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.DownloadLimit*options.MB),
+			2*int(th.op.TorrentConfig.DownloadLimit*options.MB))
 	}
 	tc, err := torrent.NewClient(clientConfig)
 	if err != nil {

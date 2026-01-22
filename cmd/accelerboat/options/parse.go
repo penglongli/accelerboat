@@ -5,6 +5,7 @@
 package options
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -35,17 +36,11 @@ func GlobalOptions() *AccelerBoatOption {
 	return singleton
 }
 
-func changeOption(op *AccelerBoatOption) {
+func changeOption(op *AccelerBoatOption, init bool) {
 	// initialized for the first time
-	if singleton == nil || prev == nil {
+	if init {
 		_ = utils.DeepCopyStruct(op, singleton)
 		_ = utils.DeepCopyStruct(op, prev)
-		logger.InitLogger(&logger.Option{
-			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
-			MaxSize:    op.LogConfig.LogMaxSize,
-			MaxAge:     op.LogConfig.LogMaxAge,
-			MaxBackups: op.LogConfig.LogMaxBackups,
-		})
 
 		// only init for the first time
 		disc := op.ServiceDiscovery
@@ -53,26 +48,25 @@ func changeOption(op *AccelerBoatOption) {
 			disc.PreferConfig, op.k8sClient); err != nil {
 			logger.Fatalf("watch k8s service failed: %s", err)
 		}
-		return
-	}
-
-	_ = utils.DeepCopyStruct(singleton, prev)
-	_ = utils.DeepCopyStruct(op, singleton)
-	if prev.LogConfig.LogDir != singleton.LogConfig.LogDir ||
-		prev.LogConfig.LogMaxSize != singleton.LogConfig.LogMaxSize ||
-		prev.LogConfig.LogMaxAge != singleton.LogConfig.LogMaxAge ||
-		prev.LogConfig.LogMaxBackups != singleton.LogConfig.LogMaxBackups {
-		logger.InitLogger(&logger.Option{
-			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
-			MaxSize:    op.LogConfig.LogMaxSize,
-			MaxAge:     op.LogConfig.LogMaxAge,
-			MaxBackups: op.LogConfig.LogMaxBackups,
-		})
+	} else {
+		_ = utils.DeepCopyStruct(singleton, prev)
+		_ = utils.DeepCopyStruct(op, singleton)
+		if prev.LogConfig.LogDir != singleton.LogConfig.LogDir ||
+			prev.LogConfig.LogMaxSize != singleton.LogConfig.LogMaxSize ||
+			prev.LogConfig.LogMaxAge != singleton.LogConfig.LogMaxAge ||
+			prev.LogConfig.LogMaxBackups != singleton.LogConfig.LogMaxBackups {
+			logger.InitLogger(&logger.Option{
+				Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
+				MaxSize:    op.LogConfig.LogMaxSize,
+				MaxAge:     op.LogConfig.LogMaxAge,
+				MaxBackups: op.LogConfig.LogMaxBackups,
+			})
+		}
 	}
 	logger.Infof("parsed options: %s", string(utils.ToJson(op)))
 }
 
-func Parse(configFile string) (*AccelerBoatOption, error) {
+func Parse(configFile string, init bool) (*AccelerBoatOption, error) {
 	bs, err := os.ReadFile(configFile)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read config '%s' failed", configFile)
@@ -81,6 +75,15 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = json.Unmarshal(bs, op); err != nil {
 		return nil, errors.Wrapf(err, "unmarshal config failed")
 	}
+	if init {
+		logger.InitLogger(&logger.Option{
+			Filename:   filepath.Join(op.LogConfig.LogDir, "accelerboat.log"),
+			MaxSize:    op.LogConfig.LogMaxSize,
+			MaxAge:     op.LogConfig.LogMaxAge,
+			MaxBackups: op.LogConfig.LogMaxBackups,
+		})
+	}
+
 	if err = op.checkLogConfig(); err != nil {
 		return nil, errors.Wrapf(err, "check option log-config failed")
 	}
@@ -99,7 +102,12 @@ func Parse(configFile string) (*AccelerBoatOption, error) {
 	if err = op.checkExternalConfig(); err != nil {
 		return nil, errors.Wrapf(err, "check option external config failed")
 	}
-	changeOption(op)
+	localIP := os.Getenv("localIP")
+	if localIP == "" {
+		return nil, fmt.Errorf("env 'localIP' is empty")
+	}
+	op.Address = localIP
+	changeOption(op, init)
 	return op, nil
 }
 
@@ -146,10 +154,10 @@ func (o *AccelerBoatOption) checkStorageConfig() error {
 }
 
 const (
+	// MB unit
+	MB int64 = 1048576
 	// TwentyMB 20MB
-	TwentyMB int64 = 20971520
-	// TwoHundredMB 200MB
-	TwoHundredMB int64 = 209715200
+	TwentyMB int64 = 20 * MB
 )
 
 func (o *AccelerBoatOption) checkCleanConfig() error {
@@ -207,12 +215,6 @@ var (
 )
 
 func (o *AccelerBoatOption) checkPreferConfig() error {
-	if o.ServiceDiscovery.PreferConfig == nil {
-		return nil
-	}
-	if o.ServiceDiscovery.PreferConfig.PreferNodes == nil {
-		return nil
-	}
 	selector := o.ServiceDiscovery.PreferConfig.PreferNodes.LabelSelectors
 	if selector == "" {
 		return nil
@@ -227,14 +229,17 @@ func (o *AccelerBoatOption) checkTorrentConfig() error {
 	if !o.TorrentConfig.Enable {
 		return nil
 	}
-	if o.TorrentConfig.Threshold < TwoHundredMB {
-		o.TorrentConfig.Threshold = TwoHundredMB
+	// min 200 MB
+	if o.TorrentConfig.Threshold < 200 {
+		o.TorrentConfig.Threshold = 200
 	}
-	if o.TorrentConfig.UploadLimit > 0 && o.TorrentConfig.UploadLimit < 1048576 {
-		o.TorrentConfig.UploadLimit = 1048576
+	// min 10 MB
+	if o.TorrentConfig.UploadLimit > 0 && o.TorrentConfig.UploadLimit < 10 {
+		o.TorrentConfig.UploadLimit = 10
 	}
-	if o.TorrentConfig.DownloadLimit > 0 && o.TorrentConfig.DownloadLimit < 1048576 {
-		o.TorrentConfig.DownloadLimit = 1048576
+	// min 10 MB
+	if o.TorrentConfig.DownloadLimit > 0 && o.TorrentConfig.DownloadLimit < 10 {
+		o.TorrentConfig.DownloadLimit = 10
 	}
 	return nil
 }
@@ -249,6 +254,54 @@ func (o *AccelerBoatOption) checkExternalConfig() error {
 			return errors.Wrapf(err, "check http_proxy connectivity failed")
 		}
 		logger.Infof("set http_proxy '%s' success", o.ExternalConfig.HTTPProxy)
+	}
+	for _, v := range o.ExternalConfig.BuiltInCerts {
+		keyBase64, err := base64.StdEncoding.DecodeString(v.Key)
+		if err != nil {
+			return errors.Wrapf(err, "base64 decode built-in key '%s' failed", v.Key)
+		}
+
+		var certBase64 []byte
+		certBase64, err = base64.StdEncoding.DecodeString(v.Cert)
+		if err != nil {
+			return errors.Wrapf(err, "base64 decode built-in cert '%s' failed", v.Cert)
+		}
+		v.Key = string(keyBase64)
+		v.Cert = string(certBase64)
+	}
+	for _, mp := range o.ExternalConfig.RegistryMappings {
+		v, ok := o.ExternalConfig.BuiltInCerts[mp.ProxyHost]
+		if ok {
+			mp.ProxyCert = v.Cert
+			mp.ProxyKey = v.Key
+			continue
+		}
+		if mp.ProxyCert != "" && mp.ProxyKey != "" {
+			afterBase64, err := base64.StdEncoding.DecodeString(mp.ProxyCert)
+			if err != nil {
+				return errors.Wrapf(err, "base64 decode cert '%s' failed", mp.ProxyCert)
+			}
+			mp.ProxyCert = string(afterBase64)
+			afterBase64, err = base64.StdEncoding.DecodeString(mp.ProxyKey)
+			if err != nil {
+				return errors.Wrapf(err, "base64 decode key '%s' failed", mp.ProxyKey)
+			}
+			mp.ProxyKey = string(afterBase64)
+		}
+		if mp.Username != "" && mp.Password != "" {
+			mp.LegalUsers = append(mp.LegalUsers, &RegistryAuth{
+				Username: mp.Username,
+				Password: mp.Password,
+			})
+		}
+		for _, user := range mp.Users {
+			if user.Username != "" && user.Password != "" {
+				mp.LegalUsers = append(mp.LegalUsers, &RegistryAuth{
+					Username: user.Username,
+					Password: user.Password,
+				})
+			}
+		}
 	}
 	return nil
 }

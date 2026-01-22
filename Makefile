@@ -16,4 +16,11 @@ export PACKAGEPATH=./build/accelerboat.${VERSION}
 .PHONY: build
 build:
 	mkdir -p ${PACKAGEPATH}
-	go mod tidy && go mod vendor && go build -o ${PACKAGEPATH}/bcs-image-proxy ./cmd/accelerboat/main.go
+	go mod tidy && go mod vendor && go build -o ${PACKAGEPATH}/accelerboat ./cmd/accelerboat/main.go
+
+.PHONY: build-image
+build-image:
+	mkdir -p ${PACKAGEPATH}
+	go mod tidy && go mod vendor && go build -o ${PACKAGEPATH}/accelerboat ./cmd/accelerboat/main.go
+	cp Dockerfile ${PACKAGEPATH}/
+	cd ${PACKAGEPATH} && docker build -t accelerboat:latest .

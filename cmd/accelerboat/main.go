@@ -30,14 +30,11 @@ func init() {
 }
 
 func main() {
-	op, err := options.Parse(*config)
+	op, err := options.Parse(*config, true)
 	if err != nil {
 		panic(errors.Wrapf(err, "parse options failed"))
 	}
-	opWatcher, err := options.NewChangeWatcher(*config)
-	if err != nil {
-		panic(errors.Wrapf(err, "create options watcher failed"))
-	}
+	opWatcher := options.NewChangeWatcher(*config)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -55,6 +52,6 @@ func main() {
 		logger.Fatalf("server init failed: %v", err)
 	}
 	if err = svr.Run(); err != nil {
-		logger.Errorf("server exit: %s", err.Error())
+		logger.Fatalf("server exit: %s", err.Error())
 	}
 }

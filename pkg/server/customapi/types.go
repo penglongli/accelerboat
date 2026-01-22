@@ -5,7 +5,6 @@
 package customapi
 
 import (
-	"fmt"
 	"net/http"
 	"sync"
 
@@ -32,8 +31,11 @@ type CustomHandler struct {
 	getManifestLock        lock.Interface
 	manifests              *ttlcache.Cache[string, string]
 	layerContentLengthLock lock.Interface
-	layerContentLengths    ttlcache.Cache[string, int64]
+	layerContentLengths    *ttlcache.Cache[string, int64]
 	downloadLayerLock      lock.Interface
+
+	staticLayerRefer map[string]map[string]int64
+	ociLayerRefer    map[string]map[string]int64
 
 	nodeDownloadLock  sync.Mutex
 	nodeDownloadTasks map[string]int
@@ -42,9 +44,25 @@ type CustomHandler struct {
 	ociScanner     *ociscan.ScanHandler
 }
 
-func NewCustomHandler(op *options.AccelerBoatOption) *CustomHandler {
+func NewCustomHandler(op *options.AccelerBoatOption, torrentHandler *bittorrent.TorrentHandler,
+	ociScanner *ociscan.ScanHandler) *CustomHandler {
 	return &CustomHandler{
-		op: op,
+		op:                     op,
+		cacheStore:             store.GlobalRedisStore(),
+		authLock:               lock.NewLocalLock(),
+		authTokens:             ttlcache.New[string, *apitypes.RegistryAuthToken](),
+		headManifestLock:       lock.NewLocalLock(),
+		headManifests:          ttlcache.New[string, map[string][]string](),
+		getManifestLock:        lock.NewLocalLock(),
+		manifests:              ttlcache.New[string, string](),
+		layerContentLengthLock: lock.NewLocalLock(),
+		layerContentLengths:    ttlcache.New[string, int64](),
+		downloadLayerLock:      lock.NewLocalLock(),
+		nodeDownloadTasks:      make(map[string]int),
+		staticLayerRefer:       make(map[string]map[string]int64),
+		ociLayerRefer:          make(map[string]map[string]int64),
+		torrentHandler:         torrentHandler,
+		ociScanner:             ociScanner,
 	}
 }
 
@@ -68,8 +86,7 @@ func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error))
 	return func(c *gin.Context) {
 		obj, err := f(c)
 		if err != nil {
-			c.String(http.StatusBadRequest, fmt.Sprintf("request '%s' failed: %s",
-				c.Request.URL.Path, err.Error()))
+			c.String(http.StatusBadRequest, err.Error())
 			return
 		}
 		if obj == nil {

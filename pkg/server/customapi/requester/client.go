@@ -52,7 +52,7 @@ func GetServiceToken(ctx context.Context, req *apitypes.GetServiceTokenRequest) 
 	return master, token, nil
 }
 
-func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (map[string][]string, error) {
+func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (string, map[string][]string, error) {
 	master := leaderselector.CurrentMaster()
 	newCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -63,13 +63,13 @@ func HeadManifest(ctx context.Context, req *apitypes.HeadManifestRequest) (map[s
 		Header: commonHeaders(ctx),
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "head image digest failed")
+		return master, nil, errors.Wrapf(err, "head image digest failed")
 	}
 	resp := new(apitypes.HeadManifestResponse)
 	if err = json.Unmarshal(body, resp); err != nil {
-		return nil, errors.Wrapf(err, "head image digest unmarshal failed")
+		return master, nil, errors.Wrapf(err, "head image digest unmarshal failed")
 	}
-	return resp.Headers, nil
+	return master, resp.Headers, nil
 }
 
 // GetManifest get manifest from master

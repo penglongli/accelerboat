@@ -19,13 +19,20 @@ type Option struct {
 	MaxSize    int
 	MaxAge     int
 	MaxBackups int
+	Level      int
 }
 
 var (
 	zapLogger *zap.Logger
+	maxLevel  int
 )
 
 func InitLogger(op *Option) {
+	if op.Level <= 0 {
+		maxLevel = 1
+	} else {
+		maxLevel = op.Level
+	}
 	lumberjackLogger := &lumberjack.Logger{
 		Filename:   op.Filename,
 		MaxSize:    op.MaxSize,

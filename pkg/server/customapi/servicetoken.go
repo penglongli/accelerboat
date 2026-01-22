@@ -29,7 +29,7 @@ func buildAuthTokenKey(originalHost, service, scope string) string {
 func getServiceTokenWithCheck(ctx context.Context, req *apitypes.GetServiceTokenRequest) (
 	*apitypes.RegistryAuthToken, error) {
 	respBody, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{
-		Url:         fmt.Sprintf("https://%s%s", req.OriginalHost, req.ServiceTokenUrl),
+		Url:         req.ServiceTokenUrl,
 		Method:      http.MethodGet,
 		HeaderMulti: req.Headers,
 	})
@@ -53,18 +53,18 @@ func getServiceTokenWithCheck(ctx context.Context, req *apitypes.GetServiceToken
 		Url:    fmt.Sprintf("https://%s/v2/%s/manifests/latest", req.OriginalHost, scopeArr[1]),
 		Method: http.MethodHead,
 		Header: map[string]string{
-			"Authorization": fmt.Sprintf("Bearer %s", token.AccessToken),
+			"Authorization": fmt.Sprintf("Bearer %s", token.Token),
 		},
 	})
 	if err != nil {
 		return token, errors.Wrapf(err, "failed to check service token")
 	}
 	defer checkResp.Body.Close()
-	if checkResp.StatusCode > 400 {
-		return token, fmt.Errorf("check service token failed, status code: %d", checkResp.StatusCode)
+	if checkResp.StatusCode != http.StatusUnauthorized && checkResp.StatusCode < 500 {
+		logger.InfoContextf(ctx, "check service token success")
+		return token, nil
 	}
-	logger.InfoContextf(ctx, "check service token success")
-	return token, nil
+	return token, fmt.Errorf("check service token failed, status code: %d", checkResp.StatusCode)
 }
 
 func (h *CustomHandler) saveAuthToken(authKey string, authToken *apitypes.RegistryAuthToken) {
@@ -81,6 +81,7 @@ func (h *CustomHandler) saveAuthToken(authKey string, authToken *apitypes.Regist
 	if authToken.ExpiresIn-60 > 180 {
 		authToken.ExpiresIn = authToken.ExpiresIn - 60
 	}
+	logger.Infof("cache authkey %s set value %s", authKey, authToken.Token)
 }
 
 func (h *CustomHandler) GetServiceToken(c *gin.Context) (interface{}, error) {
@@ -97,7 +98,9 @@ func (h *CustomHandler) GetServiceToken(c *gin.Context) (interface{}, error) {
 	if auth != nil && !auth.IsExpired() {
 		return auth.Value(), nil
 	}
+	logger.InfoContextf(ctx, "cache authkey: %s", authKey)
 
+	delete(req.Headers, "Accept-Encoding")
 	originalAuthToken, err := getServiceTokenWithCheck(ctx, req)
 	if err == nil {
 		h.saveAuthToken(authKey, originalAuthToken)

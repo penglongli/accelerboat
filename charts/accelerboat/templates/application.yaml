@@ -42,10 +42,10 @@ spec:
       containers:
         - name: {{ include "accelerboat.fullname" . }}
           command:
-            - /data/accelerboat/accelerboat
+            - /data/workspace/accelerboat
           args:
             - -f
-            - /data/accelerboat/config/accelerboat.json
+            - /data/workspace/config/accelerboat.json
           env:
             - name: localIP
               valueFrom:
@@ -77,7 +77,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: config
-              mountPath: /data/accelerboat/config
+              mountPath: /data/workspace/config
           {{- if $isStandalone }}
             {{- with .Values.standalone.volumeMounts }}
               {{- toYaml . | nindent 12 }}

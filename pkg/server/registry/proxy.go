@@ -79,7 +79,7 @@ func NewUpstreamProxy(proxyType options.ProxyType, proxyHost string,
 		op:             op,
 		proxyHost:      proxyHost,
 		proxyType:      proxyType,
-		proxyRegistry:  op.FilterRegistryMapping(proxyHost, proxyType),
+		proxyRegistry:  proxyRegistry,
 		cacheStore:     store.GlobalRedisStore(),
 		layerLock:      lock.NewLocalLock(),
 		torrentHandler: torrentHandler,
@@ -94,14 +94,14 @@ func (p *upstreamProxy) initReverseProxy() {
 	p.reverseProxy = &httputil.ReverseProxy{
 		Director: func(request *http.Request) {},
 		ErrorHandler: func(writer http.ResponseWriter, req *http.Request, err error) {
-			logger.ErrorContextf(req.Context(), "reverse proxy to '%s' failed: %s (req-headers: %+v)",
-				req.URL.String(), err.Error(), req.Header)
+			logger.ErrorContextf(req.Context(), "reverse proxy to '%s, %s' failed: %s (req-headers: %+v)",
+				req.Method, req.URL.String(), err.Error(), req.Header)
 		},
 		Transport: p.op.HTTPProxyTransport(),
 		ModifyResponse: func(resp *http.Response) error {
 			req := resp.Request
-			logger.InfoContextf(req.Context(), "reverse proxy to '%s' response code '%d'",
-				req.URL.String(), resp.StatusCode)
+			logger.InfoContextf(req.Context(), "reverse proxy to '%s, %s' response code '%d'",
+				req.Method, req.URL.String(), resp.StatusCode)
 			utils.ChangeAuthenticateHeader(resp, fmt.Sprintf("https://%s:%d", p.proxyRegistry.ProxyHost,
 				p.op.HTTPSPort))
 			return nil
@@ -129,6 +129,13 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 	req.URL = newURL
 	req.Host = originalHost
 
+	// directly reverse if registry-mapping is disabled
+	proxyRegistry := p.op.FilterRegistryMapping(p.proxyHost, p.proxyType)
+	if proxyRegistry != nil && !proxyRegistry.Enable {
+		p.reverseProxy.ServeHTTP(rw, req)
+		return
+	}
+
 	registryService, registryScope, isServiceToken := utils.IsServiceToken(req)
 	headManifestRepo, headManifestTag, isHeadManifest := utils.IsHeadImageDigest(req)
 	manifestRepo, manifestTag, isGetManifest := utils.IsManifestGet(req)
@@ -138,24 +145,29 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 		if registryService == "" || registryScope == "" {
 			break
 		}
+		ctx = logger.WithContextFields(ctx, "service", registryService, "scope", registryScope)
 		err = p.handleGetServiceToken(ctx, req, rw, registryService, registryScope)
 		if err == nil {
 			return
 		}
 		logger.ErrorContextf(ctx, "service-token request failed and will reverse: %s", err.Error())
 	case isHeadManifest:
-		err = p.handleHeadManifest(ctx, req, rw, headManifestRepo, headManifestTag)
-		if err == nil {
-			return
+		if auth := req.Header.Get("Authorization"); auth != "" {
+			err = p.handleHeadManifest(ctx, req, rw, headManifestRepo, headManifestTag)
+			if err == nil {
+				return
+			}
+			logger.ErrorContextf(ctx, "head-manifest request failed and will reverse: %s", err.Error())
 		}
-		logger.ErrorContextf(ctx, "head-manifest request failed and will reverse: %s", err.Error())
 	case isGetManifest:
+		ctx = logger.WithContextFields(ctx, "repo", manifestRepo, "tag", manifestTag)
 		err = p.handleGetManifest(ctx, req, rw, manifestRepo, manifestTag)
 		if err == nil {
 			return
 		}
 		logger.ErrorContextf(ctx, "get-manifest request failed and will reverse: %s", err.Error())
 	case isGetBlob:
+		ctx = logger.WithContextFields(ctx, "repo", blobRepo, "digest", digest)
 		if err = p.handleGetBlob(ctx, req, rw, blobRepo, digest); err == nil {
 			return
 		}
@@ -167,8 +179,7 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 
 func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Request, rw http.ResponseWriter,
 	service, scope string) error {
-	ctx = logger.WithContextFields(ctx, "service", service, "scope", scope)
-	logger.InfoContextf(ctx, "handling service-token request")
+	logger.InfoContextf(ctx, "handle service-token request")
 	getServiceTokenReq := &apitypes.GetServiceTokenRequest{
 		OriginalHost:    p.proxyRegistry.OriginalHost,
 		ServiceTokenUrl: req.URL.String(),
@@ -180,7 +191,9 @@ func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Req
 	if err != nil {
 		return err
 	}
-	logger.InfoContextf(ctx, "get service-token from master success, master=%s", master)
+	logger.InfoContextf(ctx, "get service-token from master(%s) success", master)
+	logger.V(3).InfoContextf(ctx, "service token: %s", serviceToken)
+	rw.WriteHeader(http.StatusOK)
 	rw.Header().Add("Content-Type", "application/json")
 	_, _ = rw.Write([]byte(serviceToken))
 	return nil
@@ -189,7 +202,7 @@ func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Req
 func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Request, rw http.ResponseWriter,
 	repo, tag string) error {
 	ctx = logger.WithContextFields(ctx, "repo", repo, "tag", tag)
-	logger.InfoContextf(ctx, "handling head-manifest request")
+	logger.InfoContextf(ctx, "handle head-manifest request")
 	headManifestReq := &apitypes.HeadManifestRequest{
 		OriginalHost:    req.Host,
 		HeadManifestUrl: req.URL.RequestURI(),
@@ -197,7 +210,7 @@ func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Reques
 		Repo:            repo,
 		Tag:             tag,
 	}
-	respHeaders, err := requester.HeadManifest(ctx, headManifestReq)
+	master, respHeaders, err := requester.HeadManifest(ctx, headManifestReq)
 	if err != nil {
 		return err
 	}
@@ -206,14 +219,14 @@ func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Reques
 			rw.Header().Add(k, vv)
 		}
 	}
+	logger.InfoContextf(ctx, "head-manifest from master(%s) success", master)
 	rw.WriteHeader(http.StatusOK)
 	return nil
 }
 
 func (p *upstreamProxy) handleGetManifest(ctx context.Context, req *http.Request, rw http.ResponseWriter,
 	repo, tag string) error {
-	ctx = logger.WithContextFields(ctx, "repo", repo, "tag", tag)
-	logger.InfoContextf(ctx, "handling get-manifest request")
+	logger.InfoContextf(ctx, "handle get-manifest request")
 	getManifestReq := &apitypes.GetManifestRequest{
 		OriginalHost: req.Host,
 		ManifestUrl:  req.URL.RequestURI(),
@@ -225,16 +238,16 @@ func (p *upstreamProxy) handleGetManifest(ctx context.Context, req *http.Request
 	if err != nil {
 		return err
 	}
-	logger.InfoContextf(ctx, "get manifest from master success, master=%s", master)
+	logger.InfoContextf(ctx, "get manifest from master(%s) success", master)
 	rw.Header().Add("Content-Type", "application/json")
+	rw.WriteHeader(http.StatusOK)
 	_, _ = rw.Write([]byte(manifest))
 	return nil
 }
 
 func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw http.ResponseWriter,
 	repo, digest string) error {
-	ctx = logger.WithContextFields(ctx, "repo", repo, "digest", digest)
-	logger.InfoContextf(ctx, "handling get-blob request")
+	logger.InfoContextf(ctx, "handle get-blob request")
 	p.layerLock.Lock(ctx, digest)
 	// 如果检测到本地存在文件，就直接进行下载
 	lfi, lp := p.checkLocalLayer(digest)

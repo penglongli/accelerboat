@@ -16,17 +16,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/moul/http2curl"
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/common"
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 // HTTPRequest defines the http request
@@ -59,8 +62,8 @@ func SendHTTPRequestReturnResponse(ctx context.Context, hr *HTTPRequest) (*http.
 		return resp, nil, errors.Wrap(err, "read response body failed")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return resp, nil, errors.Errorf("http response code not 200 but %d, resp: %s",
-			resp.StatusCode, string(respBody))
+		return resp, nil, fmt.Errorf("http response %d: %s", resp.StatusCode,
+			utils.BytesToString(respBody))
 	}
 	return resp, respBody, nil
 }
@@ -70,7 +73,7 @@ func SendHTTPRequestOnlyResponse(ctx context.Context, hr *HTTPRequest) (*http.Re
 	var err error
 
 	if !strings.Contains(hr.Url, "customapi") {
-		logger.InfoContextf(ctx, "do request '%s/%s'", hr.Method, hr.Url)
+		logger.InfoContextf(ctx, "do request '%s, %s'", hr.Method, hr.Url)
 	}
 	if hr.Body != nil {
 		var body []byte
@@ -106,6 +109,8 @@ func SendHTTPRequestOnlyResponse(ctx context.Context, hr *HTTPRequest) (*http.Re
 		}
 		req.URL.RawQuery = query.Encode()
 	}
+	command, _ := http2curl.GetCurlCommand(req)
+	logger.V(3).InfoContextf(ctx, "Request: %s", command.String())
 
 	var resp *http.Response
 	httpClient := &http.Client{}
@@ -146,6 +151,11 @@ func SendHTTPRequestOnlyResponse(ctx context.Context, hr *HTTPRequest) (*http.Re
 	}
 	if resp == nil {
 		return nil, errors.New("http response is nil")
+	}
+	logger.V(3).InfoContextf(ctx, "Response Code: %d", resp.StatusCode)
+	logger.V(3).Infof("Response Headers:")
+	for k, v := range resp.Header {
+		logger.V(3).Infof("    %s: %s", k, strings.Join(v, ", "))
 	}
 	return resp, nil
 }

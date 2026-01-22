@@ -5,9 +5,9 @@ RUN ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
 ENV LANG=en_US.UTF-8 \
     LANGUAGE=en_US.UTF-8
 
-RUN mkdir -p /data/accelerboat/logs
-ADD accelerboat /data/accelerboat/
-RUN chmod +x /data/accelerboat/accelerboat
+RUN mkdir -p /data/accelerboat/logs && mkdir -p /data/workspace
+ADD accelerboat /data/workspace/
+RUN chmod +x /data/workspace/accelerboat
 
 WORKDIR /data/accelerboat/
-CMD [ "/data/accelerboat/accelerboat" ]
+CMD [ "/data/workspace/accelerboat" ]

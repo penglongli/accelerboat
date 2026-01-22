@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 
+	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 )
@@ -36,7 +37,7 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 		LayerPath: req.LayerPath,
 		FileSize:  fileSize,
 	}
-	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold {
+	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold*options.MB {
 		return resp, nil
 	}
 

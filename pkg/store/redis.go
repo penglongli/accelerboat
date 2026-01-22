@@ -44,6 +44,7 @@ type LayerLocatedInfo struct {
 	Located string    `json:"located"`
 	Data    string    `json:"data"`
 	TS      int64     `json:"ts"`
+	Refer   int64     `json:"refer"`
 }
 
 // CacheStore defines the interface of cache store
@@ -52,6 +53,7 @@ type CacheStore interface {
 	DeleteOCILayer(ctx context.Context, ociType LayerType, layer string) error
 	SaveStaticLayer(ctx context.Context, layer, filePath string, printLog bool) error
 	DeleteStaticLayer(ctx context.Context, layer string) error
+	DeleteLocatedStaticLayer(ctx context.Context, located, layer string) error
 	QueryLayers(ctx context.Context, layer string) ([]*LayerLocatedInfo, []*LayerLocatedInfo, error)
 
 	CleanHostCache(ctx context.Context) error
@@ -152,6 +154,14 @@ func (r *RedisStore) DeleteStaticLayer(ctx context.Context, layer string) error 
 	return nil
 }
 
+func (r *RedisStore) DeleteLocatedStaticLayer(ctx context.Context, located, layer string) error {
+	key := fmt.Sprintf("%s/%s", located, string(StaticFile))
+	if err := r.redisClient.HDel(ctx, layer, key).Err(); err != nil {
+		return errors.Wrapf(err, "redis del key '%s' failed", key)
+	}
+	return nil
+}
+
 // CleanHostCache clean host cache
 func (r *RedisStore) CleanHostCache(ctx context.Context) error {
 	clean := func(wg *sync.WaitGroup, layer string) {
@@ -230,7 +240,7 @@ func (r *RedisStore) QueryLayers(ctx context.Context, layer string) ([]*LayerLoc
 	sort.Slice(ociLayers, func(i, j int) bool {
 		return ociLayers[i].TS > ociLayers[j].TS
 	})
-	return getTopN(staticLayers, 10), getTopN(ociLayers, 10), nil
+	return getTopN(staticLayers, 50), getTopN(ociLayers, 50), nil
 }
 
 func getTopN(slice []*LayerLocatedInfo, n int) []*LayerLocatedInfo {

@@ -26,7 +26,7 @@ func completeRequestID(req *http.Request) (context.Context, string) {
 	return reqCtx, requestID
 }
 
-func CommonMiddleware() func(ctx *gin.Context) {
+func GinMiddleware() func(ctx *gin.Context) {
 	return func(ctx *gin.Context) {
 		reqCtx, requestID := completeRequestID(ctx.Request)
 		ctx.Request = ctx.Request.WithContext(reqCtx)
@@ -38,4 +38,13 @@ func CommonMiddleware() func(ctx *gin.Context) {
 		}
 		ctx.Next()
 	}
+}
+
+func GeneralMiddleware(rw http.ResponseWriter, req *http.Request) *http.Request {
+	reqCtx, requestID := completeRequestID(req)
+	newReq := req.WithContext(reqCtx)
+	rw.Header().Set(common.RequestIDHeaderKey, requestID)
+	newReq.Header.Set(common.RequestIDHeaderKey, requestID)
+	logger.InfoContextf(reqCtx, "received request: %s, %s%s", req.Method, req.Host, req.URL.String())
+	return newReq
 }

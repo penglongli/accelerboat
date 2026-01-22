@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -23,8 +24,8 @@ import (
 
 // PreferConfig defines the prefer config
 type PreferConfig struct {
-	MasterIP    string             `json:"masterIP" value:"" usage:"manually specify the master node"`
-	PreferNodes *PreferNodesConfig `json:"preferNodes" value:"" usage:"assume the master role and download tasks"`
+	MasterIP    string            `json:"masterIP"`
+	PreferNodes PreferNodesConfig `json:"preferNodes"`
 }
 
 // PreferNodesConfig defines the prefer nodes config
@@ -36,7 +37,7 @@ var (
 	namespace   string
 	serviceName string
 	serverPort  int64
-	preferCfg   *PreferConfig
+	preferCfg   PreferConfig
 	k8sClient   *kubernetes.Clientset
 
 	endpoints []string
@@ -55,6 +56,11 @@ func changeMaster(prevMaster string) string {
 		}
 	}
 	return prevMaster
+}
+
+// Endpoints returns the service endpoints
+func Endpoints() []string {
+	return endpoints
 }
 
 // CurrentMaster return the current master
@@ -76,13 +82,36 @@ func CurrentMaster() string {
 	return currentEndpoint
 }
 
-func WatchK8sService(ns, name string, port int64, preferConfig *PreferConfig,
-	k8sClientset *kubernetes.Clientset) error {
-	namespace = ns
-	serviceName = name
-	serverPort = port
-	preferCfg = preferConfig
-	k8sClient = k8sClientset
+func createEndpointsWatcher() (*k8swatch.RetryWatcher, error) {
+	epList, err := k8sClient.CoreV1().Endpoints(namespace).List(context.Background(), metav1.ListOptions{
+		FieldSelector: fmt.Sprintf("metadata.name=%s", serviceName),
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "list k8s endpoints failed")
+	}
+	watcher, err := k8swatch.NewRetryWatcherWithContext(context.Background(), epList.ResourceVersion,
+		&cache.ListWatch{
+			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
+				return k8sClient.CoreV1().Endpoints(namespace).Watch(ctx, metav1.ListOptions{
+					FieldSelector: fmt.Sprintf("metadata.name=%s", serviceName),
+				})
+			},
+		})
+	if err != nil {
+		return nil, errors.Wrapf(err, "create k8s watcher for endpoints failed")
+	}
+	return watcher, nil
+}
+
+func WatchK8sService(ns, name string, port int64, preferConfig PreferConfig,
+	k8sClientSet *kubernetes.Clientset) error {
+	{
+		namespace = ns
+		serviceName = name
+		serverPort = port
+		preferCfg = preferConfig
+		k8sClient = k8sClientSet
+	}
 	result, err := getServiceEndpoints()
 	if err != nil {
 		return err
@@ -91,40 +120,44 @@ func WatchK8sService(ns, name string, port int64, preferConfig *PreferConfig,
 	prevMaster := CurrentMaster()
 	logger.Infof("current master: %s", prevMaster)
 
-	ctx := context.Background()
-	watcher, err := k8swatch.NewRetryWatcherWithContext(ctx, "endpoints", &cache.ListWatch{
-		WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
-			return k8sClient.CoreV1().Endpoints(ns).Watch(ctx, metav1.ListOptions{
-				ResourceVersion: "0",
-				FieldSelector:   fmt.Sprintf("metadata.name=%s", name),
-			})
-		},
-	})
+	watcher, err := createEndpointsWatcher()
 	if err != nil {
-		return errors.Wrapf(err, "create k8s watcher for endpoints failed")
+		return err
 	}
 	go func() {
-		defer watcher.Stop()
+		defer func() {
+			watcher.Stop()
+			logger.Infof("k8s endpoints watcher stopped")
+		}()
 		logger.Infof("watching k8s endpoint '%s/%s'", ns, name)
 		for {
 			select {
-			case <-ctx.Done():
-				return
 			case event, ok := <-watcher.ResultChan():
 				if !ok {
 					logger.Errorf("watch k8s endpoints channel interrupted")
-					return
+					break
 				}
 				if event.Object == nil {
 					logger.Errorf("watch k8s endpoints event.object is nil")
-					continue
+					break
 				}
 				switch event.Type {
 				case watch.Added, watch.Modified, watch.Deleted:
 					prevMaster = changeMaster(prevMaster)
 				case watch.Error:
 					fmt.Printf("watch k8s endpoints error occurred: %v\n", event.Object)
-					return
+					break
+				}
+			case <-watcher.Done():
+				logger.Errorf("k8s endpoints watcher closed with unexpected error")
+				var newWatcher *k8swatch.RetryWatcher
+				newWatcher, err = createEndpointsWatcher()
+				if err != nil {
+					logger.Errorf("create endpoints watcher failed")
+					time.Sleep(time.Second)
+				} else {
+					logger.Infof("create endpoints watcher success")
+					watcher = newWatcher
 				}
 			}
 		}
