@@ -5,18 +5,24 @@
 package customapi
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/gin-gonic/gin"
+	"github.com/juju/ratelimit"
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
+	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
 )
 
 func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
@@ -77,15 +83,50 @@ func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+var (
+	// 默认 100MB 的 buffer
+	defaultTransBuffer = int64(100 * 1048576)
+)
+
+const blockSize = 4096
+
+func alignedBuffer(size int) []byte {
+	// 分配额外空间以保证对齐
+	b := make([]byte, size+blockSize)
+	// 返回第一个对齐位置开始的 slice
+	alignOffset := (blockSize - (uintptr(unsafe.Pointer(&b[0])) % blockSize)) % blockSize
+	return b[alignOffset : alignOffset+uintptr(size)]
+}
+
 func (h *CustomHandler) TransferLayerTCP(c *gin.Context) (interface{}, error) {
 	requestFile := c.Query("file")
 	if requestFile == "" {
 		return nil, errors.Errorf("quyer param 'file' cannot empty")
 	}
-	if _, err := os.Stat(requestFile); err != nil {
+	ctx := c.Request.Context()
+	if fi, err := os.Stat(requestFile); err != nil {
 		return nil, errors.Wrapf(err, "query file '%s' stat failed", requestFile)
+	} else {
+		logger.InfoContextf(ctx, "start read and write layer, file: %s, size: %s", requestFile,
+			formatutils.FormatSize(fi.Size()))
 	}
-	http.ServeFile(c.Writer, c.Request, requestFile)
+
+	file, err := os.OpenFile(requestFile, syscall.O_RDONLY|syscall.O_DIRECT, 0)
+	if err != nil {
+		logger.WarnContextf(ctx, "read file '%s' with directio failed: %s", requestFile, err.Error())
+		http.ServeFile(c.Writer, c.Request, requestFile)
+		return nil, nil
+	}
+	defer file.Close()
+
+	bucket := ratelimit.NewBucketWithRate(float64(defaultTransBuffer), defaultTransBuffer)
+	reader := bufio.NewReader(file)
+	buf := alignedBuffer(32 * 1024) // 对齐的 32KB buffer
+	rateReader := ratelimit.Reader(reader, bucket)
+	if _, err = io.CopyBuffer(c.Writer, rateReader, buf); err != nil {
+		return nil, errors.Wrapf(err, "io copy with file '%s' failed", requestFile)
+	}
+	logger.InfoContextf(ctx, "complete transfer layer, file: %s", requestFile)
 	return nil, nil
 }
 

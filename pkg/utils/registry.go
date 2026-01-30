@@ -19,6 +19,7 @@ import (
 	"strings"
 )
 
+// todo: ChangeAuthenticateHeader 这里需要做下改造
 func ChangeAuthenticateHeader(resp *http.Response, proxyHost string) {
 	v := resp.Header.Get("Www-Authenticate")
 	if v == "" {
