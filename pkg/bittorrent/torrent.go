@@ -46,7 +46,6 @@ type TorrentHandler struct {
 	op          *options.AccelerBoatOption
 
 	client       *torrent.Client
-	pc           storage.PieceCompletion
 	cacheStore   store.CacheStore
 	torrentCache *sync.Map
 
@@ -84,6 +83,7 @@ func (th *TorrentHandler) Init() error {
 	clientConfig.DialRateLimiter = rate.NewLimiter(100, 200)
 	clientConfig.DisableAcceptRateLimiting = true
 	clientConfig.AcceptPeerConnections = true
+	clientConfig.DefaultStorage = storage.NewMMap(th.op.StorageConfig.TorrentPath)
 	if th.op.TorrentConfig.UploadLimit > 0 {
 		clientConfig.UploadRateLimiter = rate.NewLimiter(rate.Limit(th.op.TorrentConfig.UploadLimit*options.MB),
 			2*int(th.op.TorrentConfig.UploadLimit*options.MB))
@@ -97,10 +97,10 @@ func (th *TorrentHandler) Init() error {
 		return errors.Wrapf(err, "create torrent client failed")
 	}
 	th.client = tc
-	th.pc, err = storage.NewDefaultPieceCompletionForDir(".")
-	if err != nil {
-		return errors.Wrapf(err, "new piece completion for dir '%s' failed", th.op.StorageConfig.TorrentPath)
-	}
+	//th.pc, err = storage.NewDefaultPieceCompletionForDir(".")
+	//if err != nil {
+	//	return errors.Wrapf(err, "new piece completion for dir '%s' failed", th.op.StorageConfig.TorrentPath)
+	//}
 	return nil
 }
 
@@ -179,31 +179,60 @@ func (th *TorrentHandler) generateServeTorrent(ctx context.Context, digest, laye
 	if err = info.BuildFromFilePath(layerFile); err != nil {
 		return nil, errors.Wrapf(err, "build torrent metainfo from file '%s' failed", layerFile)
 	}
-	mi := metainfo.MetaInfo{
+	mi := &metainfo.MetaInfo{
 		InfoBytes: bencode.MustMarshal(info),
 	}
-	ih := mi.HashInfoBytes()
-	to, _ := th.client.AddTorrentOpt(torrent.AddTorrentOpts{
-		InfoHash: ih,
-		Storage:  storage.NewMMapWithCompletion(th.op.StorageConfig.TorrentPath, th.pc),
-		//Storage: storage.NewFileOpts(storage.NewFileClientOpts{
-		//	ClientBaseDir: layerFile,
-		//	FilePathMaker: func(opts storage.FilePathMakerOpts) string {
-		//		return filepath.Join(opts.File.BestPath()...)
-		//	},
-		//	TorrentDirMaker: nil,
-		//	PieceCompletion: th.pc,
-		//}),
-		// ChunkSize: 131072,
-	})
+	logger.InfoContextf(ctx, "load torrent metainfor from file '%s' success", layerFile)
+	mi.AnnounceList = [][]string{{th.op.TorrentConfig.Announce}}
+	to, err := th.client.AddTorrent(mi)
+	if err != nil {
+		return nil, errors.Wrapf(err, "add torrent to metainfo failed")
+	}
 	if err = to.MergeSpec(&torrent.TorrentSpec{
 		DisplayName: digest,
-		InfoBytes:   mi.InfoBytes,
-		Trackers:    [][]string{{th.op.TorrentConfig.Announce}},
 	}); err != nil {
-		return nil, errors.Wrapf(err, "setting trackers failed")
+		return nil, errors.Wrapf(err, "merge torrent spec failed")
+	}
+	logger.InfoContextf(ctx, "waiting for torrent to be loaded")
+	<-to.GotInfo()
+	logger.InfoContextf(ctx, "torrent info loaded, size: %d", to.Length())
+	to.AddTrackers([][]string{{th.op.TorrentConfig.Announce}})
+	if err = to.VerifyDataContext(ctx); err != nil {
+		return nil, errors.Wrapf(err, "verify torrent data failed")
 	}
 	logger.InfoContextf(ctx, "generate torrent success")
+
+	//pieceLength := metainfo.ChoosePieceLength(fi.Size())
+	//info := metainfo.Info{
+	//	PieceLength: pieceLength,
+	//}
+	//if err = info.BuildFromFilePath(layerFile); err != nil {
+	//	return nil, errors.Wrapf(err, "build torrent metainfo from file '%s' failed", layerFile)
+	//}
+	//mi := metainfo.MetaInfo{
+	//	InfoBytes: bencode.MustMarshal(info),
+	//}
+	// ih := mi.HashInfoBytes()
+	//to, _ := th.client.AddTorrentOpt(torrent.AddTorrentOpts{
+	//	InfoHash: ih,
+	//	Storage:  storage.NewMMapWithCompletion(th.op.StorageConfig.TorrentPath, th.pc),
+	//	//Storage: storage.NewFileOpts(storage.NewFileClientOpts{
+	//	//	ClientBaseDir: layerFile,
+	//	//	FilePathMaker: func(opts storage.FilePathMakerOpts) string {
+	//	//		return filepath.Join(opts.File.BestPath()...)
+	//	//	},
+	//	//	TorrentDirMaker: nil,
+	//	//	PieceCompletion: th.pc,
+	//	//}),
+	//	// ChunkSize: 131072,
+	//})
+	//if err = to.MergeSpec(&torrent.TorrentSpec{
+	//	DisplayName: digest,
+	//	InfoBytes:   mi.InfoBytes,
+	//	Trackers:    [][]string{{th.op.TorrentConfig.Announce}},
+	//}); err != nil {
+	//	return nil, errors.Wrapf(err, "setting trackers failed")
+	//}
 	return to, nil
 }
 
@@ -320,7 +349,7 @@ func (th *TorrentHandler) downloadTorrent(ctx context.Context, digest, torrentBa
 				formatutils.FormatSize(currentBytes),
 				allSize,
 				formatutils.FormatSize(byteRate),
-				float64(t.BytesCompleted())/float64(t.Length())*100,
+				float64(currentBytes)/float64(t.Length())*100,
 			)
 			if currentBytes == t.Length() {
 				close(done)

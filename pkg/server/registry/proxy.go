@@ -25,6 +25,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/store"
 	"github.com/penglongli/accelerboat/pkg/utils"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
+	"github.com/penglongli/accelerboat/pkg/utils/httpfile"
 	"github.com/penglongli/accelerboat/pkg/utils/lock"
 )
 
@@ -336,7 +337,10 @@ func (p *upstreamProxy) downloadLayerFromLocal(ctx context.Context, digest strin
 		return false
 	}
 	logger.InfoContextf(ctx, "download layer from local starting")
-	http.ServeFile(rw, req, layerPath)
+	if err := httpfile.HTTPServeFile(ctx, rw, req, layerPath); err != nil {
+		logger.WarnContextf(ctx, "download layer from local failed with error: %s", err.Error())
+		return false
+	}
 	logger.InfoContextf(ctx, "download layer from local success. Content-Length: %d", layerFileInfo.Size())
 	return true
 }

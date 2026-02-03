@@ -7,9 +7,10 @@ package customapi
 import (
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jellydator/ttlcache/v3"
+	"github.com/patrickmn/go-cache"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
@@ -25,13 +26,13 @@ type CustomHandler struct {
 	cacheStore store.CacheStore
 
 	authLock               lock.Interface
-	authTokens             *ttlcache.Cache[string, *apitypes.RegistryAuthToken]
+	authTokens             *cache.Cache
 	headManifestLock       lock.Interface
-	headManifests          *ttlcache.Cache[string, map[string][]string]
+	headManifests          *cache.Cache
 	getManifestLock        lock.Interface
-	manifests              *ttlcache.Cache[string, string]
+	manifests              *cache.Cache
 	layerContentLengthLock lock.Interface
-	layerContentLengths    *ttlcache.Cache[string, int64]
+	layerContentLengths    *cache.Cache
 	downloadLayerLock      lock.Interface
 
 	staticLayerRefer map[string]map[string]int64
@@ -50,13 +51,13 @@ func NewCustomHandler(op *options.AccelerBoatOption, torrentHandler *bittorrent.
 		op:                     op,
 		cacheStore:             store.GlobalRedisStore(),
 		authLock:               lock.NewLocalLock(),
-		authTokens:             ttlcache.New[string, *apitypes.RegistryAuthToken](),
+		authTokens:             cache.New(0, 5*time.Second),
 		headManifestLock:       lock.NewLocalLock(),
-		headManifests:          ttlcache.New[string, map[string][]string](),
+		headManifests:          cache.New(0, 5*time.Second),
 		getManifestLock:        lock.NewLocalLock(),
-		manifests:              ttlcache.New[string, string](),
+		manifests:              cache.New(0, 5*time.Second),
 		layerContentLengthLock: lock.NewLocalLock(),
-		layerContentLengths:    ttlcache.New[string, int64](),
+		layerContentLengths:    cache.New(0, 5*time.Second),
 		downloadLayerLock:      lock.NewLocalLock(),
 		nodeDownloadTasks:      make(map[string]int),
 		staticLayerRefer:       make(map[string]map[string]int64),

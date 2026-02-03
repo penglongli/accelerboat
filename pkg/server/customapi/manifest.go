@@ -31,9 +31,9 @@ func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error
 	h.headManifestLock.Lock(ctx, lockKey)
 	defer h.headManifestLock.UnLock(ctx, lockKey)
 
-	v := h.headManifests.Get(lockKey)
-	if v != nil && !v.IsExpired() {
-		return &apitypes.HeadManifestResponse{Headers: v.Value()}, nil
+	v, ok := h.headManifests.Get(lockKey)
+	if ok && v != nil {
+		return &apitypes.HeadManifestResponse{Headers: v.(map[string][]string)}, nil
 	}
 	logger.InfoContextf(ctx, "handling head image manifest request")
 	resp, _, err := httputils.SendHTTPRequestReturnResponse(ctx, &httputils.HTTPRequest{
@@ -62,9 +62,9 @@ func (h *CustomHandler) RegistryGetManifest(c *gin.Context) (interface{}, error)
 	h.getManifestLock.Lock(ctx, lockKey)
 	defer h.getManifestLock.UnLock(ctx, lockKey)
 
-	v := h.manifests.Get(lockKey)
-	if v != nil && !v.IsExpired() {
-		return v.Value(), nil
+	v, ok := h.manifests.Get(lockKey)
+	if ok && v != nil {
+		return v.(string), nil
 	}
 	logger.InfoContextf(ctx, "handling get image manifest request")
 	respBody, err := httputils.SendHTTPRequest(ctx, &httputils.HTTPRequest{

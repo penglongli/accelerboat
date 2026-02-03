@@ -94,9 +94,9 @@ func (h *CustomHandler) GetServiceToken(c *gin.Context) (interface{}, error) {
 	h.authLock.Lock(ctx, authKey)
 	defer h.authLock.UnLock(ctx, authKey)
 
-	auth := h.authTokens.Get(authKey)
-	if auth != nil && !auth.IsExpired() {
-		return auth.Value(), nil
+	auth, ok := h.authTokens.Get(authKey)
+	if ok && auth != nil {
+		return auth.(*apitypes.RegistryAuthToken), nil
 	}
 	logger.InfoContextf(ctx, "cache authkey: %s", authKey)
 

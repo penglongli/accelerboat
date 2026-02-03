@@ -37,9 +37,9 @@ func (h *CustomHandler) getLayerContentLength(ctx context.Context, req *apitypes
 	h.layerContentLengthLock.Lock(ctx, lockKey)
 	defer h.layerContentLengthLock.UnLock(ctx, lockKey)
 
-	v := h.layerContentLengths.Get(lockKey)
-	if v != nil && !v.IsExpired() {
-		return v.Value(), nil
+	v, ok := h.layerContentLengths.Get(lockKey)
+	if ok && v != nil {
+		return v.(int64), nil
 	}
 	logger.InfoContextf(ctx, "handling get layer content-length")
 	resp, _, err := httputils.SendHTTPRequestReturnResponse(ctx, &httputils.HTTPRequest{
@@ -50,7 +50,7 @@ func (h *CustomHandler) getLayerContentLength(ctx context.Context, req *apitypes
 	if err != nil {
 		return 0, errors.Wrapf(err, "get layer content-length failed")
 	}
-	h.layerContentLengths.Set(lockKey, resp.ContentLength, 30*time.Second)
+	h.layerContentLengths.Set(lockKey, resp.ContentLength, 10*time.Second)
 	layerSize := formatutils.FormatSize(resp.ContentLength)
 	logger.InfoContextf(ctx, "get layer content-length success: %s(%d)", layerSize, resp.ContentLength)
 	return resp.ContentLength, nil
