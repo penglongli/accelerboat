@@ -13,6 +13,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/recorder"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/utils/httputils"
 )
@@ -42,6 +43,12 @@ func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error
 		HeaderMulti: req.Headers,
 	})
 	if err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeHeadManifest, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "tag": req.Tag,
+				"source": "upstream", "status": "error", "error": err.Error(),
+			},
+		})
 		return nil, err
 	}
 	result := make(map[string][]string)
@@ -49,6 +56,12 @@ func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error
 		result[k] = v
 	}
 	h.headManifests.Set(lockKey, result, 10*time.Second)
+	recorder.Global.Record(recorder.Event{
+		Type: recorder.EventTypeHeadManifest, Details: map[string]interface{}{
+			"registry": req.OriginalHost, "repo": req.Repo, "tag": req.Tag,
+			"source": "upstream", "status": "success",
+		},
+	})
 	return &apitypes.HeadManifestResponse{Headers: result}, nil
 }
 
@@ -73,9 +86,21 @@ func (h *CustomHandler) RegistryGetManifest(c *gin.Context) (interface{}, error)
 		HeaderMulti: req.Headers,
 	})
 	if err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeGetManifest, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "tag": req.Tag,
+				"source": "upstream", "status": "error", "error": err.Error(),
+			},
+		})
 		return nil, err
 	}
 	manifest := string(respBody)
 	h.manifests.Set(lockKey, manifest, 10*time.Second)
+	recorder.Global.Record(recorder.Event{
+		Type: recorder.EventTypeGetManifest, Details: map[string]interface{}{
+			"registry": req.OriginalHost, "repo": req.Repo, "tag": req.Tag,
+			"source": "upstream", "status": "success",
+		},
+	})
 	return manifest, nil
 }

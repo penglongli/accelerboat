@@ -11,16 +11,22 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-contrib/pprof"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/ociscan"
+	"github.com/penglongli/accelerboat/pkg/recorder"
+	"github.com/penglongli/accelerboat/pkg/server/common"
 	"github.com/penglongli/accelerboat/pkg/server/customapi"
 	"github.com/penglongli/accelerboat/pkg/server/middleware"
 	"github.com/penglongli/accelerboat/pkg/server/registry"
@@ -70,6 +76,14 @@ func (s *AccelerboatServer) Init() error {
 	if err := s.staticWatcher.Init(s.globalCtx); err != nil {
 		return err
 	}
+	if s.op.StorageConfig.EventFile != "" {
+		if err := recorder.Global.InitEventFile(s.op.StorageConfig.EventFile, recorder.DefaultEventFileMaxSizeMB,
+			recorder.DefaultEventFileMaxBackups); err != nil {
+			return err
+		}
+		logger.Infof("event file sink enabled: %s (rotate at 1GB, keep %d backups)", s.op.StorageConfig.EventFile,
+			recorder.DefaultEventFileMaxBackups)
+	}
 	s.initHTTPRouter()
 	return nil
 }
@@ -81,6 +95,7 @@ func (s *AccelerboatServer) initHTTPRouter() {
 	gin.SetMode(gin.ReleaseMode)
 	ginSvr.Use(middleware.GinMiddleware())
 	pprof.Register(ginSvr)
+	ginSvr.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	ch := customapi.NewCustomHandler(s.op, s.torrentHandler, s.ociScanner)
 	ch.Register(ginSvr)
 	s.ginSvr = ginSvr
@@ -88,7 +103,7 @@ func (s *AccelerboatServer) initHTTPRouter() {
 
 func (s *AccelerboatServer) Run() error {
 	fs := []func(errCh chan error){s.runHTTPServer, s.runHTTPSServer, s.runOCITickReporter,
-		s.runStaticFilesWatcher, s.runOptionFileWatcher}
+		s.runStaticFilesWatcher, s.runOptionFileWatcher, s.runDiskUsageUpdater}
 	errCh := make(chan error, len(fs))
 	for i := range fs {
 		go fs[i](errCh)
@@ -205,6 +220,29 @@ L:
 	errCh <- nil
 }
 
+func (s *AccelerboatServer) runDiskUsageUpdater(errCh chan error) {
+	defer logger.Warnf("disk usage updater exit")
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	paths := map[string]string{
+		"transfer":  s.op.StorageConfig.TransferPath,
+		"download":  s.op.StorageConfig.DownloadPath,
+		"smallfile": s.op.StorageConfig.SmallFilePath,
+		"torrent":   s.op.StorageConfig.TorrentPath,
+		"oci":       s.op.StorageConfig.OCIPath,
+	}
+	metrics.UpdateDiskUsage(paths)
+	for {
+		select {
+		case <-s.globalCtx.Done():
+			errCh <- nil
+			return
+		case <-ticker.C:
+			metrics.UpdateDiskUsage(paths)
+		}
+	}
+}
+
 var (
 	proxyHostRegex = regexp.MustCompile(`^/v[1-2]/([^/]+)/`)
 )
@@ -222,18 +260,28 @@ const (
 )
 
 func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
+	rec := common.NewResponseRecorder(rw)
+	start := time.Now()
+	method := req.Method
+
 	for _, v := range s.ginSvr.Routes() {
 		if req.URL.Path == v.Path && req.Method == v.Method {
-			s.ginSvr.ServeHTTP(rw, req)
+			s.ginSvr.ServeHTTP(rec, req)
+			path := v.Path
+			if path == "" {
+				path = req.URL.Path
+			}
+			metrics.HTTPRequestsTotal.WithLabelValues(method, path, strconv.Itoa(rec.Status())).Inc()
+			metrics.HTTPRequestDurationSeconds.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
 			return
 		}
 	}
 
-	req = middleware.GeneralMiddleware(rw, req)
+	req = middleware.GeneralMiddleware(rec, req)
 	ctx := req.Context()
 	hosts := strings.Split(req.Host, ":")
 	if len(hosts) != 2 {
-		s.httpError(ctx, rw, fmt.Sprintf("invalid host: %s", req.Host), http.StatusBadRequest)
+		s.httpError(ctx, rec, fmt.Sprintf("invalid host: %s", req.Host), http.StatusBadRequest)
 		return
 	}
 	proxyType := options.DomainProxy
@@ -242,8 +290,12 @@ func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 
 	upstreamProxy := registry.NewUpstreamProxy(proxyType, proxyHost, s.torrentHandler)
 	if upstreamProxy == nil {
-		s.httpError(ctx, rw, fmt.Sprintf("no handler for proxy host '%s'", proxyHost), http.StatusBadRequest)
+		s.httpError(ctx, rec, fmt.Sprintf("no handler for proxy host '%s'", proxyHost), http.StatusBadRequest)
 		return
 	}
-	upstreamProxy.ServeHTTP(requestURI, rw, req)
+	upstreamProxy.ServeHTTP(requestURI, rec, req)
+	metrics.HTTPRequestsTotal.WithLabelValues(method, "registry", strconv.Itoa(rec.Status())).Inc()
+	if !strings.Contains(req.URL.Path, "/blobs/") {
+		metrics.HTTPRequestDurationSeconds.WithLabelValues(method, "registry").Observe(time.Since(start).Seconds())
+	}
 }

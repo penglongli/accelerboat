@@ -2,3 +2,5 @@
 vendor
 .codebuddy
 ./build
+.cursor
+.speckit

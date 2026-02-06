@@ -77,13 +77,15 @@ var (
 func GlobalRedisStore() CacheStore {
 	syncOnce.Do(func() {
 		op := options.GlobalOptions()
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     op.RedisAddress,
+			Password: op.RedisPassword,
+		})
+		redisClient.AddHook(NewRedisHook())
 		globalRS = &RedisStore{
-			op: op,
-			redisClient: redis.NewClient(&redis.Options{
-				Addr:     op.RedisAddress,
-				Password: op.RedisPassword,
-			}),
-			localCache: &sync.Map{},
+			op:          op,
+			redisClient: redisClient,
+			localCache:  &sync.Map{},
 		}
 	})
 	return globalRS

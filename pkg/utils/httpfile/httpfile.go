@@ -5,7 +5,6 @@
 package httpfile
 
 import (
-	"bufio"
 	"context"
 	"io"
 	"net/http"
@@ -13,16 +12,10 @@ import (
 	"syscall"
 	"unsafe"
 
-	"github.com/juju/ratelimit"
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
-)
-
-var (
-	// 默认 100MB 的 buffer
-	defaultTransBuffer = int64(100 * 1048576)
 )
 
 const blockSize = 4096
@@ -51,11 +44,8 @@ func HTTPServeFile(ctx context.Context, rw http.ResponseWriter, req *http.Reques
 	}
 	defer file.Close()
 
-	bucket := ratelimit.NewBucketWithRate(float64(defaultTransBuffer), defaultTransBuffer)
-	reader := bufio.NewReader(file)
 	buf := alignedBuffer(32 * 1024) // 对齐的 32KB buffer
-	rateReader := ratelimit.Reader(reader, bucket)
-	if _, err = io.CopyBuffer(rw, rateReader, buf); err != nil {
+	if _, err = io.CopyBuffer(rw, file, buf); err != nil {
 		return errors.Wrapf(err, "io copy with file '%s' failed", reqFile)
 	}
 	logger.InfoContextf(ctx, "complete transfer layer, file: %s", reqFile)

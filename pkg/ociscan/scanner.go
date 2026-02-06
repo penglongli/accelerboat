@@ -30,6 +30,7 @@ import (
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/store"
 )
 
@@ -109,6 +110,7 @@ func (s *ScanHandler) GenerateLayer(ctx context.Context, ociType string, layer s
 		return "", errors.Errorf("layer path 'type(%s), file(%s)' is unknown", ociType, layer)
 	}
 	if err != nil {
+		metrics.RecordError(metrics.ComponentOCIScan, "generate_layer")
 		return "", errors.Wrapf(err, "generate '%s' oci-layer failed", ociType)
 	}
 	return result, nil

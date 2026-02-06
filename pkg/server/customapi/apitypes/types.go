@@ -5,6 +5,7 @@
 package apitypes
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -19,6 +20,9 @@ const (
 	APITransferLayerTCP = "/customapi/transfer-layer-tcp"
 	APIRecorder         = "/customapi/recorder"
 	APITorrentStatus    = "/customapi/torrent-status"
+	APIStats            = "/customapi/stats"
+	APIMetrics          = "/customapi/metrics"
+	APIConfig           = "/customapi/config"
 )
 
 type GetServiceTokenRequest struct {
@@ -72,6 +76,17 @@ type DownloadLayerResponse struct {
 	Located       string `json:"located"`
 	FilePath      string `json:"filePath"`
 	FileSize      int64  `json:"fileSize"`
+}
+
+func (resp *DownloadLayerResponse) ToJSONString() string {
+	var torrent string
+	if resp.TorrentBase64 != "" {
+		torrent = "(too long not print)"
+	} else {
+		torrent = "(no-torrent)"
+	}
+	return fmt.Sprintf(`{"torrent": "%s", "located": "%s", "filePath": "%s", "fileSize": %d}`,
+		torrent, resp.Located, resp.FilePath, resp.FileSize)
 }
 
 // CheckStaticLayerRequest defines the request of check static layer

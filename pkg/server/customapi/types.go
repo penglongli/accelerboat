@@ -81,6 +81,26 @@ func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 	ginSvr.Handle(http.MethodGet, apitypes.APITorrentStatus, h.HTTPWrapper(h.TorrentStatus))
 
 	ginSvr.Handle(http.MethodGet, apitypes.APITransferLayerTCP, h.HTTPWrapper(h.TransferLayerTCP))
+
+	ginSvr.Handle(http.MethodGet, apitypes.APIStats, h.HTTPWrapperWithOutput(h.Stats))
+	ginSvr.Handle(http.MethodGet, apitypes.APIMetrics, h.HTTPWrapperWithOutput(h.Metrics))
+	ginSvr.Handle(http.MethodGet, apitypes.APIConfig, h.HTTPWrapperWithOutput(h.Config))
+}
+
+// HTTPWrapperWithOutput 用于 stats/metrics/config 等接口：支持 output=json 查询参数输出 JSON，否则输出格式化文本。
+func (h *CustomHandler) HTTPWrapperWithOutput(f func(c *gin.Context) (interface{}, string, error)) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		jsonData, text, err := f(c)
+		if err != nil {
+			c.String(http.StatusBadRequest, err.Error())
+			return
+		}
+		if c.Query("output") == "json" {
+			c.JSON(http.StatusOK, jsonData)
+			return
+		}
+		c.String(http.StatusOK, text)
+	}
 }
 
 func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error)) func(c *gin.Context) {

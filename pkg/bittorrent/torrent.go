@@ -33,6 +33,7 @@ import (
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/store"
 	"github.com/penglongli/accelerboat/pkg/utils"
 	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
@@ -97,10 +98,12 @@ func (th *TorrentHandler) Init() error {
 		return errors.Wrapf(err, "create torrent client failed")
 	}
 	th.client = tc
-	//th.pc, err = storage.NewDefaultPieceCompletionForDir(".")
-	//if err != nil {
-	//	return errors.Wrapf(err, "new piece completion for dir '%s' failed", th.op.StorageConfig.TorrentPath)
-	//}
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		for range ticker.C {
+			metrics.TorrentActiveCount.Set(float64(len(th.client.Torrents())))
+		}
+	}()
 	return nil
 }
 
@@ -120,8 +123,20 @@ func (th *TorrentHandler) getLayerFiles(path string) ([]string, error) {
 	return layerFiles, nil
 }
 
-// GenerateTorrent generate the file to torrent
 func (th *TorrentHandler) GenerateTorrent(ctx context.Context, digest, sourceFile string) (string, error) {
+	start := time.Now()
+	torrentBase64, err := th.handleGenerateTorrent(ctx, digest, sourceFile)
+	metrics.TorrentOperationDuration.WithLabelValues("generate").Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.TorrentOperationsTotal.WithLabelValues("generate", "error").Inc()
+	} else {
+		metrics.TorrentOperationsTotal.WithLabelValues("generate", "success").Inc()
+	}
+	return torrentBase64, err
+}
+
+// GenerateTorrent generate the file to torrent
+func (th *TorrentHandler) handleGenerateTorrent(ctx context.Context, digest, sourceFile string) (string, error) {
 	th.torrentLock.Lock(ctx, digest)
 	defer th.torrentLock.UnLock(ctx, digest)
 	to, torrentBase64 := th.CheckTorrentLocalExist(ctx, digest)
@@ -201,38 +216,6 @@ func (th *TorrentHandler) generateServeTorrent(ctx context.Context, digest, laye
 		return nil, errors.Wrapf(err, "verify torrent data failed")
 	}
 	logger.InfoContextf(ctx, "generate torrent success")
-
-	//pieceLength := metainfo.ChoosePieceLength(fi.Size())
-	//info := metainfo.Info{
-	//	PieceLength: pieceLength,
-	//}
-	//if err = info.BuildFromFilePath(layerFile); err != nil {
-	//	return nil, errors.Wrapf(err, "build torrent metainfo from file '%s' failed", layerFile)
-	//}
-	//mi := metainfo.MetaInfo{
-	//	InfoBytes: bencode.MustMarshal(info),
-	//}
-	// ih := mi.HashInfoBytes()
-	//to, _ := th.client.AddTorrentOpt(torrent.AddTorrentOpts{
-	//	InfoHash: ih,
-	//	Storage:  storage.NewMMapWithCompletion(th.op.StorageConfig.TorrentPath, th.pc),
-	//	//Storage: storage.NewFileOpts(storage.NewFileClientOpts{
-	//	//	ClientBaseDir: layerFile,
-	//	//	FilePathMaker: func(opts storage.FilePathMakerOpts) string {
-	//	//		return filepath.Join(opts.File.BestPath()...)
-	//	//	},
-	//	//	TorrentDirMaker: nil,
-	//	//	PieceCompletion: th.pc,
-	//	//}),
-	//	// ChunkSize: 131072,
-	//})
-	//if err = to.MergeSpec(&torrent.TorrentSpec{
-	//	DisplayName: digest,
-	//	InfoBytes:   mi.InfoBytes,
-	//	Trackers:    [][]string{{th.op.TorrentConfig.Announce}},
-	//}); err != nil {
-	//	return nil, errors.Wrapf(err, "setting trackers failed")
-	//}
 	return to, nil
 }
 
@@ -278,8 +261,18 @@ func (th *TorrentHandler) gotTorrentInfo(t *torrent.Torrent) error {
 	}
 }
 
-// DownloadTorrent download the file by torrent
 func (th *TorrentHandler) DownloadTorrent(ctx context.Context, digest, torrentBase64, targetPath string) error {
+	err := th.handleDownloadTorrent(ctx, digest, torrentBase64, targetPath)
+	if err != nil {
+		metrics.TorrentOperationsTotal.WithLabelValues("download", "error").Inc()
+	} else {
+		metrics.TorrentOperationsTotal.WithLabelValues("download", "success").Inc()
+	}
+	return err
+}
+
+// DownloadTorrent download the file by torrent
+func (th *TorrentHandler) handleDownloadTorrent(ctx context.Context, digest, torrentBase64, targetPath string) error {
 	if err := th.downloadTorrent(ctx, digest, torrentBase64); err != nil {
 		return err
 	}

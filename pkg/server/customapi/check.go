@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"os"
 	"time"
-	"unsafe"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/metrics"
+	"github.com/penglongli/accelerboat/pkg/recorder"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/utils/httpfile"
 )
@@ -27,9 +28,21 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 	}
 	fileSize, err := checkLocalLayer(req.LayerPath)
 	if err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckStatic, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
+				"status": "error", "error": err.Error(),
+			},
+		})
 		return nil, errors.Wrapf(err, "check local layer failed")
 	}
 	if fileSize != req.ExpectedContentLength {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckStatic, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
+				"status": "error", "error": "content-length mismatch",
+			},
+		})
 		return nil, fmt.Errorf("local file '%s' content-length '%d', not same as expcted '%d'",
 			req.LayerPath, fileSize, req.ExpectedContentLength)
 	}
@@ -39,6 +52,12 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 		FileSize:  fileSize,
 	}
 	if !h.op.TorrentConfig.Enable || fileSize < h.op.TorrentConfig.Threshold*options.MB {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckStatic, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
+				"status": "success", "located": h.op.Address, "file_size": fileSize,
+			},
+		})
 		return resp, nil
 	}
 
@@ -48,8 +67,20 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 	torrentBase64, err := h.torrentHandler.GenerateTorrent(timeoutCtx, req.Digest, req.LayerPath)
 	if err != nil {
 		logger.ErrorContextf(ctx, "generate torrent for '%s' failed: %s", req.LayerPath, err.Error())
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckStatic, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
+				"status": "success", "located": h.op.Address, "file_size": fileSize, "torrent": "failed",
+			},
+		})
 	} else {
 		resp.TorrentBase64 = torrentBase64
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckStatic, Details: map[string]interface{}{
+				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
+				"status": "success", "located": h.op.Address, "file_size": fileSize,
+			},
+		})
 	}
 	return resp, nil
 }
@@ -62,12 +93,27 @@ func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 	ctx := c.Request.Context()
 	layerPath, err := h.ociScanner.GenerateLayer(ctx, req.OCIType, req.Digest)
 	if err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckOCI, Details: map[string]interface{}{
+				"digest": req.Digest, "oci_type": req.OCIType, "status": "error", "error": err.Error(),
+			},
+		})
 		return nil, errors.Wrapf(err, "generate oci layer failed")
 	}
 	var fi os.FileInfo
 	if fi, err = os.Stat(layerPath); err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeCheckOCI, Details: map[string]interface{}{
+				"digest": req.Digest, "oci_type": req.OCIType, "status": "error", "error": err.Error(),
+			},
+		})
 		return nil, errors.Wrapf(err, "stat oc-layer '%s' failed", layerPath)
 	}
+	recorder.Global.Record(recorder.Event{
+		Type: recorder.EventTypeCheckOCI, Details: map[string]interface{}{
+			"digest": req.Digest, "oci_type": req.OCIType, "status": "success", "located": h.op.Address, "file_size": fi.Size(),
+		},
+	})
 	return &apitypes.CheckOCILayerResponse{
 		// TODO: Currently, OCI layers are not being transferred using the BitTorrent protocol,
 		// but rather via direct TCP transfer. We may consider using the BitTorrent protocol in the future.
@@ -78,29 +124,31 @@ func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
-var (
-	// 默认 100MB 的 buffer
-	defaultTransBuffer = int64(100 * 1048576)
-)
-
-const blockSize = 4096
-
-func alignedBuffer(size int) []byte {
-	// 分配额外空间以保证对齐
-	b := make([]byte, size+blockSize)
-	// 返回第一个对齐位置开始的 slice
-	alignOffset := (blockSize - (uintptr(unsafe.Pointer(&b[0])) % blockSize)) % blockSize
-	return b[alignOffset : alignOffset+uintptr(size)]
-}
-
 func (h *CustomHandler) TransferLayerTCP(c *gin.Context) (interface{}, error) {
 	requestFile := c.Query("file")
 	if requestFile == "" {
 		return nil, errors.Errorf("quyer param 'file' cannot empty")
 	}
 	ctx := c.Request.Context()
+	var fileSize int64
+	if fi, err := os.Stat(requestFile); err == nil && !fi.IsDir() {
+		fileSize = fi.Size()
+	}
 	if err := httpfile.HTTPServeFile(ctx, c.Writer, c.Request, requestFile); err != nil {
+		recorder.Global.Record(recorder.Event{
+			Type: recorder.EventTypeTransferLayer, Details: map[string]interface{}{
+				"file": requestFile, "status": "error", "error": err.Error(),
+			},
+		})
 		return nil, err
+	}
+	recorder.Global.Record(recorder.Event{
+		Type: recorder.EventTypeTransferLayer, Details: map[string]interface{}{
+			"file": requestFile, "status": "success",
+		},
+	})
+	if fileSize > 0 {
+		metrics.TransferSize.WithLabelValues("serve_blob_by_tcp").Add(float64(fileSize) / 1e9)
 	}
 	return nil, nil
 }
