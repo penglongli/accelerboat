@@ -16,28 +16,28 @@ import (
 	"github.com/penglongli/accelerboat/pkg/metrics"
 )
 
-// RedisHook 实现 go-redis 的 Hook 接口
+// RedisHook implements go-redis Hook interface for metrics and logging.
 type RedisHook struct{}
 
+// NewRedisHook returns a new RedisHook.
 func NewRedisHook() *RedisHook {
 	return &RedisHook{}
 }
 
-// 定义上下文key（用于存储操作开始时间）
 type ctxKey int
 
 const (
 	redisStartTimestampKey ctxKey = iota
 )
 
-// BeforeProcess 记录操作开始时间
+// BeforeProcess stores the operation start time in context.
 func (h *RedisHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.Context, error) {
-	// 将开始时间存入上下文
+	// Store start time in context
 	ctx = context.WithValue(ctx, redisStartTimestampKey, time.Now())
 	return ctx, nil
 }
 
-// AfterProcess 计算耗时、记录错误、更新metrics
+// AfterProcess records duration, errors, and updates metrics.
 func (h *RedisHook) AfterProcess(ctx context.Context, cmd redis.Cmder) error {
 	startTime, ok := ctx.Value(redisStartTimestampKey).(time.Time)
 	if !ok {
@@ -62,13 +62,13 @@ func (h *RedisHook) AfterProcess(ctx context.Context, cmd redis.Cmder) error {
 	return nil
 }
 
-// BeforeProcessPipeline 批量操作前记录开始时间
+// BeforeProcessPipeline stores the pipeline start time in context.
 func (h *RedisHook) BeforeProcessPipeline(ctx context.Context, cmds []redis.Cmder) (context.Context, error) {
 	ctx = context.WithValue(ctx, redisStartTimestampKey, time.Now())
 	return ctx, nil
 }
 
-// AfterProcessPipeline 批量操作后处理
+// AfterProcessPipeline processes each command in the pipeline for metrics (reuses pipeline start time).
 func (h *RedisHook) AfterProcessPipeline(ctx context.Context, cmds []redis.Cmder) error {
 	startTime, ok := ctx.Value(redisStartTimestampKey).(time.Time)
 	if !ok {
@@ -76,14 +76,13 @@ func (h *RedisHook) AfterProcessPipeline(ctx context.Context, cmds []redis.Cmder
 	}
 
 	for _, cmd := range cmds {
-		// 为每个批量命令单独计算耗时（或复用批量开始时间，根据需求调整）
+		// Use pipeline start time for each command's duration (or use per-cmd timing if needed)
 		cmdCtx := context.WithValue(ctx, redisStartTimestampKey, startTime)
 		_ = h.AfterProcess(cmdCtx, cmd)
 	}
 	return nil
 }
 
-// sanitizeArgs 脱敏处理参数
 func sanitizeArgs(args []interface{}) []interface{} {
 	sanitized := make([]interface{}, len(args))
 	for i, arg := range args {

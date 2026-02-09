@@ -57,9 +57,8 @@ func (h *CustomHandler) getLayerContentLength(ctx context.Context, req *apitypes
 	return resp.ContentLength, nil
 }
 
-// GetLayerInfo master will handle the GetLayerInfo request.
-// It will check layer has cached in all the cluster, or will distribute download request to other
-// node.
+// GetLayerInfo handles the get-layer-info request: checks if the layer is cached in the cluster or
+// distributes the download to another node.
 func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	req := &apitypes.DownloadLayerRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -269,6 +268,7 @@ func (h *CustomHandler) releaseNode(node string) {
 	}
 }
 
+// DownloadLayer downloads a layer from the original registry to local storage and optionally returns a torrent.
 func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 	req := &apitypes.DownloadLayerRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {

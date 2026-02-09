@@ -13,9 +13,10 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 )
 
+// Config returns the current AccelerBoat configuration as JSON or formatted text (see HTTPWrapperWithOutput).
 func (h *CustomHandler) Config(c *gin.Context) (interface{}, string, error) {
 	op := h.op
-	// 使用可导出的副本，避免循环引用；JSON 会序列化 json tag 的字段
+	// Use an exported copy to avoid circular reference; JSON serializes fields by json tag
 	cfg := buildConfigSnapshot(op)
 	raw, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
@@ -27,7 +28,7 @@ func (h *CustomHandler) Config(c *gin.Context) (interface{}, string, error) {
 	return cfg, text.String(), nil
 }
 
-// configSnapshot 用于 JSON/格式化输出，对敏感字段可做脱敏（此处保持与 options 一致，仅做快照）
+// configSnapshot is used for JSON/formatted output; sensitive fields can be masked (here kept consistent with options, snapshot only).
 type configSnapshot struct {
 	Address          string                   `json:"address"`
 	HTTPPort         int64                    `json:"httpPort"`
@@ -41,7 +42,7 @@ type configSnapshot struct {
 	EnableContainerd bool                     `json:"enableContainerd"`
 	TorrentConfig    options.TorrentConfig    `json:"torrentConfig"`
 	RedisAddress     string                   `json:"redisAddress"`
-	RedisPassword    string                   `json:"redisPassword"` // 注意：生产环境建议脱敏
+	RedisPassword    string                   `json:"redisPassword"` // Note: consider masking in production
 	ExternalConfig   externalConfigSnapshot   `json:"externalConfig"`
 }
 

@@ -175,7 +175,7 @@ func mapKeys(m map[string]struct{}) []string {
 
 func getServiceEndpoints() ([]string, error) {
 	var preferNodes = make(map[string]struct{})
-	// 获取到用户设置的 Prefer 节点信息列表
+	// Get user-configured preferred nodes
 	if selectors := preferCfg.PreferNodes.LabelSelectors; selectors != "" {
 		nodeList, err := k8sClient.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{
 			LabelSelector: selectors,
@@ -197,7 +197,6 @@ func getServiceEndpoints() ([]string, error) {
 		}
 	}
 
-	// 获取到所有 Image-Proxy 的 Endpoint 节点列表
 	eps, err := k8sClient.CoreV1().Endpoints(namespace).Get(context.Background(), serviceName, metav1.GetOptions{})
 	if err != nil {
 		return nil, errors.Wrapf(err, "get k8s endpoint '%s/%s' failed", namespace, serviceName)
@@ -218,12 +217,10 @@ func getServiceEndpoints() ([]string, error) {
 	if len(intersection) != 0 {
 		logger.Infof("[master-election] get prefer-nodes with endpoints intersection: %v",
 			mapKeys(intersection))
-		// 如果存在交集，应该把交集返回回去
 		for k := range intersection {
 			result = append(result, k)
 		}
 	} else {
-		// 如果无交集，应该把 Endpoints 返回回去
 		for k := range epMap {
 			result = append(result, k)
 		}
@@ -233,7 +230,6 @@ func getServiceEndpoints() ([]string, error) {
 			logger.Warnf("[master-election] preferConfig.masterIP is specified '%s', but not found", masterIP)
 		} else {
 			had := false
-			// 对比结果是否有 MasterIP，如果没有需要加进去
 			for _, ip := range result {
 				if ip == masterIP {
 					had = true

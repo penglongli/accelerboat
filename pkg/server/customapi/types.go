@@ -20,7 +20,8 @@ import (
 	"github.com/penglongli/accelerboat/pkg/utils/lock"
 )
 
-// CustomHandler 定义了一系列的方法，用于对外提供服务. 通常是由普通 node 来调用 master 的这些对外接口能力.
+// CustomHandler defines a set of methods for external services. It is typically used by regular nodes to call
+// the master's external API capabilities.
 type CustomHandler struct {
 	op         *options.AccelerBoatOption
 	cacheStore store.CacheStore
@@ -45,6 +46,7 @@ type CustomHandler struct {
 	ociScanner     *ociscan.ScanHandler
 }
 
+// NewCustomHandler creates a CustomHandler with the given options, torrent handler, and OCI scanner.
 func NewCustomHandler(op *options.AccelerBoatOption, torrentHandler *bittorrent.TorrentHandler,
 	ociScanner *ociscan.ScanHandler) *CustomHandler {
 	return &CustomHandler{
@@ -67,6 +69,7 @@ func NewCustomHandler(op *options.AccelerBoatOption, torrentHandler *bittorrent.
 	}
 }
 
+// Register mounts all custom API routes on the given Gin engine.
 func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 	ginSvr.Handle(http.MethodPost, apitypes.APIGetServiceToken, h.HTTPWrapper(h.GetServiceToken))
 	ginSvr.Handle(http.MethodPost, apitypes.APIHeadManifest, h.HTTPWrapper(h.RegistryHeadManifest))
@@ -87,7 +90,9 @@ func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 	ginSvr.Handle(http.MethodGet, apitypes.APIConfig, h.HTTPWrapperWithOutput(h.Config))
 }
 
-// HTTPWrapperWithOutput 用于 stats/metrics/config 等接口：支持 output=json 查询参数输出 JSON，否则输出格式化文本。
+// HTTPWrapperWithOutput wraps handlers for stats/metrics/config etc.: if query param output=json
+//
+//	is set, responds with JSON; otherwise returns formatted text.
 func (h *CustomHandler) HTTPWrapperWithOutput(f func(c *gin.Context) (interface{}, string, error)) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		jsonData, text, err := f(c)
@@ -103,6 +108,7 @@ func (h *CustomHandler) HTTPWrapperWithOutput(f func(c *gin.Context) (interface{
 	}
 }
 
+// HTTPWrapper wraps a handler that returns (interface{}, error) and responds with JSON or string accordingly.
 func (h *CustomHandler) HTTPWrapper(f func(c *gin.Context) (interface{}, error)) func(c *gin.Context) {
 	return func(c *gin.Context) {
 		obj, err := f(c)

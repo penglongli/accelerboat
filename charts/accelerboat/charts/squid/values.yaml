@@ -10,7 +10,7 @@ imagePullSecrets: []
 # This is to override the chart name.
 fullnameOverride: "accelerboat-squid"
 
-# 用户自行设置资源
+# Set resources as needed
 resources:
   limits:
     cpu: 1
@@ -19,12 +19,12 @@ resources:
     cpu: 100m
     memory: 128Mi
 
-# 用户自行设定运行的 Node
+# Node selector for scheduling
 nodeSelector: {}
 
 tolerations: []
 
-# 设定 Pod 实例在每个节点上互斥
+# Pod anti-affinity: one pod per node
 affinity:
   podAntiAffinity:
     requiredDuringSchedulingIgnoredDuringExecution:
@@ -33,10 +33,10 @@ affinity:
             app: accelerboat-squid
         topologyKey: "kubernetes.io/hostname"
 
-# 用户自行设定是否为 true
+# Set to true if needed
 hostNetwork: true
 
-# 默认配置文件，用户自行修改
+# Squid config (customize as needed)
 squidConf: |+
   acl all src all 
   http_access allow all

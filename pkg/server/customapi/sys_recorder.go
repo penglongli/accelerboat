@@ -12,6 +12,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/recorder"
 )
 
+// Recorder returns recent recorder events (optional query limit, default 100, max 2000).
 func (h *CustomHandler) Recorder(c *gin.Context) (interface{}, error) {
 	limit := 100
 	if s := c.Query("limit"); s != "" {
@@ -34,6 +35,7 @@ func (h *CustomHandler) Recorder(c *gin.Context) (interface{}, error) {
 	return gin.H{"events": out}, nil
 }
 
+// TorrentStatus returns the current torrent status (placeholder implementation).
 func (h *CustomHandler) TorrentStatus(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }

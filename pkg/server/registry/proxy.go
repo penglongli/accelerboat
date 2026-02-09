@@ -262,7 +262,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	repo, digest string) error {
 	logger.InfoContextf(ctx, "handle get-blob request")
 	p.layerLock.Lock(ctx, digest)
-	// 如果检测到本地存在文件，就直接进行下载
+	// directly download if check layer existed in-local
 	lfi, lp := p.checkLocalLayer(digest)
 	if lfi != nil {
 		start := time.Now()

@@ -16,29 +16,29 @@ import (
 )
 
 type statsJSON struct {
-	ContainerdEnabled bool                 `json:"containerdEnabled"`
-	Torrent           torrentStatsJSON     `json:"torrent"`
-	Master            string               `json:"master"`
-	HTTPProxy         string               `json:"httpProxy"`
-	Upstreams          []upstreamEntryJSON `json:"upstreams"`
-	Storage           []storageEntryJSON   `json:"storage"`
-	Cleanup           cleanStatsJSON       `json:"cleanup"`
-	Transfer          []transferEntryJSON  `json:"transfer"`
-	ErrorsTotal       int64                `json:"errorsTotal"`
+	ContainerdEnabled bool                `json:"containerdEnabled"`
+	Torrent           torrentStatsJSON    `json:"torrent"`
+	Master            string              `json:"master"`
+	HTTPProxy         string              `json:"httpProxy"`
+	Upstreams         []upstreamEntryJSON `json:"upstreams"`
+	Storage           []storageEntryJSON  `json:"storage"`
+	Cleanup           cleanStatsJSON      `json:"cleanup"`
+	Transfer          []transferEntryJSON `json:"transfer"`
+	ErrorsTotal       int64               `json:"errorsTotal"`
 }
 
 type torrentStatsJSON struct {
-	Enabled      bool   `json:"enabled"`
-	Threshold    int64  `json:"threshold"`
-	UploadLimit  int64  `json:"uploadLimit"`
+	Enabled       bool   `json:"enabled"`
+	Threshold     int64  `json:"threshold"`
+	UploadLimit   int64  `json:"uploadLimit"`
 	DownloadLimit int64  `json:"downloadLimit"`
-	Announce     string `json:"announce"`
-	ManagedCount int    `json:"managedCount"`
+	Announce      string `json:"announce"`
+	ManagedCount  int    `json:"managedCount"`
 }
 
 type storageEntryJSON struct {
-	Path   string  `json:"path"`
-	Label  string  `json:"label"`
+	Path    string  `json:"path"`
+	Label   string  `json:"label"`
 	UsageGB float64 `json:"usageGB"`
 }
 
@@ -59,7 +59,7 @@ type upstreamEntryJSON struct {
 	Enabled      bool   `json:"enabled"`
 }
 
-// storageLabelOrder 与 options.StorageConfig 字段对应，用于顺序输出各目录。
+// storageLabelOrder matches options.StorageConfig fields for ordered output of directories.
 var storageLabelOrder = []struct {
 	Label string
 	Path  func(op *options.AccelerBoatOption) string
@@ -71,6 +71,8 @@ var storageLabelOrder = []struct {
 	{"oci", func(op *options.AccelerBoatOption) string { return op.StorageConfig.OCIPath }},
 }
 
+// Stats returns runtime stats (storage, transfer, errors, torrent, upstreams) as JSON or formatted text
+// (see HTTPWrapperWithOutput).
 func (h *CustomHandler) Stats(c *gin.Context) (interface{}, string, error) {
 	op := h.op
 	tc := op.TorrentConfig

@@ -46,7 +46,7 @@ func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
 
 // FilterRegistryMapping filter registry mapping
 func (o *AccelerBoatOption) FilterRegistryMapping(proxyHost string, proxyType ProxyType) *RegistryMapping {
-	// 针对 ProxyHost 为空，设置其默认使用 docker.io
+	// When ProxyHost is empty, default to docker.io
 	if proxyHost == "" {
 		return &o.ExternalConfig.DockerHubRegistry
 	}

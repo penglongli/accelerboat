@@ -28,11 +28,10 @@ const (
 )
 
 var (
-	// byteUnit 字节单位
 	byteUnit = []string{B, KB, MB, GB, TB, EB}
 )
 
-// FormatSize 字节的单位转换 保留两位小数
+// FormatSize converts bytes to a human-readable string (e.g. KB, MB) with two decimal places.
 func FormatSize(s int64) string {
 	var b int64 = 1
 	for i := 0; i < len(byteUnit); i++ {
@@ -43,10 +42,10 @@ func FormatSize(s int64) string {
 		res, _ := FormatFloat(float64(s)/float64(b>>10), 2)
 		return fmt.Sprintf("%.2f%-2s", res, byteUnit[i])
 	}
-	return fmt.Sprintf("%.2f%-2s", float64(s), B) // 未找到单位
+	return fmt.Sprintf("%.2f%-2s", float64(s), B) // no unit found
 }
 
-// FormatFloat  保留两位小数，舍弃尾数，无进位运算
+// FormatFloat truncates to the given number of decimal places (no rounding).
 func FormatFloat(num float64, decimal int) (float64, error) {
 	d := float64(1)
 	if decimal > 0 {

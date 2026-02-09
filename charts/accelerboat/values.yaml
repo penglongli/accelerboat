@@ -42,57 +42,56 @@ env:
   logMaxSize: 200
   logMaxBackups: 10
   logMaxAge: 15
-  # 文件的各个存储路径(请勿修改)
+  # Storage paths (do not modify unless necessary)
   downloadPath: /data/accelerboat/storage
   transferPath: /data/accelerboat/transfer
   smallFilePath: /data/accelerboat/smallfile
   ociPath: /data/accelerboat/oci
   torrentPath: /data/accelerboat/torrent
   eventFile: /data/accelerboat/accelerboat.event
-  # 清理的定时任务表达式，五段式结构；为空则表示不开启
-  # 如 "* * * * *" 表示每秒执行
+  # Cleanup cron expression (five fields); empty means disabled
+  # e.g. "* * * * *" runs every minute
   cleanCron: ""
-  # 文件保留的阈值，单位 GB
+  # Retention threshold in GB
   cleanThreshold: "100"
-  # 保留最近 x 天的缓存文件
+  # Retain cached files for the last N days
   cleanRetainDays: 3
-  # 优选的 MasterIP，可以由用户指定
+  # Preferred Master IP (optional)
   preferMasterIP: ""
-  # 优选的 Node 节点，这些 Node 节点会承担下载任务以及 Master 选举；为空表示不使用
-  # 多个 selector 是并的关系，格式：k1=v1,k2=v2
+  # Preferred Node label selectors; these nodes run download tasks and master election; empty means not used
+  # Multiple selectors are AND; format: k1=v1,k2=v2
   preferLabelSelectors: ""
-  # 是否开启 Containerd 镜像发现
+  # Enable Containerd image discovery
   enableContainerd: false
-  # 是否启用 BitTorrent 协议, 用户按需修改此项
+  # Enable BitTorrent protocol (user-configurable)
   enableTorrent: false
-  # 使用 BitTorrent 协议的文件大小阈值（超过则使用 Torrent 分发），单位 MB
+  # File size threshold in MB above which Torrent distribution is used
   torrentThreshold: 200
-  # 种子上传速度限制，0 表示无限制. 单位 MB
+  # Torrent upload speed limit in MB; 0 = unlimited
   torrentUploadLimit: 0
-  # 种子下载速度限制，0 表示无限制. 单位 MB
+  # Torrent download speed limit in MB; 0 = unlimited
   torrentDownloadLimit: 0
-  # Torrent 协议的 Tracker 地址(请勿修改)
+  # Torrent tracker address (do not modify)
   torrentAnnounce: udp://{{ .Values.tracker.name }}.{{ .Release.Namespace }}.svc.cluster.local:6969
-  # 部署的 Redis 地址
+  # Redis address
   redisAddress: accelerboat-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379
   redisPassword: ""
-  # 是否设置 HTTP_PROXY 作为镜像拉取流量出口, 如：http://x.x.x.x:2088（不需要则不填写）
-  # 如果开启了此 chart 中的 squid，地址为：http://squid.${namespace}.svc.cluster.local:2088
+  # HTTP_PROXY for image pull egress, e.g. http://x.x.x.x:2088 (leave empty if not needed)
+  # If using squid from this chart: http://squid.${namespace}.svc.cluster.local:2088
   httpProxy: ""
 
 externalConfig:
-  # 镜像仓库映射关系，用户需要按需修改此处
+  # Registry mapping (customize as needed)
   registryMappings:
-  # - proxyHost: "代理的域名（也即上述申的指向 127.0.0.1 的域名，如：docker-registry.myprivate.com）"
-  #   proxyCert: "代理域名的证书 base64（没有可以不填，需要用户配置 OCI 的 insecure-registry）"
-  #   proxyKey: "代理域名的证书 base64（没有可以不填）"
+  # - proxyHost: "Proxy domain (e.g. docker-registry.myprivate.com pointing to 127.0.0.1)"
+  #   proxyCert: "Proxy cert base64 (optional; configure OCI insecure-registry if needed)"
+  #   proxyKey: "Proxy key base64 (optional)"
   #   enable: "true"
-  #   originalHost: "源仓库的域名（如：mirrors.tencent.com）"
-  #   username: "源仓库的用户名"
-  #   password: "源仓库的密码"
-  #   # 此项针对部分用户使用了多个大洲的 Registry 实例，对应了多个密码，做了 CNAME 按地域解析，需要将全部密码填入
-  #   # 镜像加速启动后，会逐个判断密码是否正确，选择正确的作为实际使用的用户
-  #   # 不需要此项功能可以将下述配置全部删除，使用到此功能需要将上边的 username/password 删除
+  #   originalHost: "Upstream registry host (e.g. mirrors.tencent.com)"
+  #   username: "Upstream username"
+  #   password: "Upstream password"
+  #   # For multi-region CNAME: add all credentials; accelerator will pick the working one
+  #   # To use users list below, remove username/password above
   #   users:
   #     - username: user1
   #       password: pass1
@@ -110,7 +109,7 @@ service:
   type: ClusterIP
 
 
-# standalone 模式下挂载宿主机的目录(建议用户不要进行修改)
+# Host path mounts for standalone mode (avoid modifying)
 standalone:
   volumes:
     - name: host-volume
@@ -121,7 +120,7 @@ standalone:
     - name: host-volume
       mountPath: /data/accelerboat
 
-# Containerd 镜像互相发现功能（仅在 standalone 模式下生效）
+# Containerd image discovery (only effective in standalone mode)
 containerd:
   volumes:
     - name: containerd-sock

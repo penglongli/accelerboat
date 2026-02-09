@@ -353,7 +353,7 @@ func (th *TorrentHandler) downloadTorrent(ctx context.Context, digest, torrentBa
 
 			if currentBytes == 0 {
 				noDownloadPoints := 36
-				// 找寻 36 个点以前(180s 前)的数据，确认当前是否 3min 仍然未能开始下载
+				// Look at data from 36 points ago (180s) to see if still no download after ~3min
 				if len(completedSlice) > noDownloadPoints {
 					oldPieces := completedSlice[len(completedSlice)-noDownloadPoints]
 					if currentBytes == oldPieces {
@@ -363,7 +363,7 @@ func (th *TorrentHandler) downloadTorrent(ctx context.Context, digest, torrentBa
 				}
 			} else {
 				noSpeedPoints := 12
-				// 找寻 12 个点以前(60s 前)的数据，确认当前是否 1min 没有速度
+				// Look at data from 12 points ago (60s) to see if no speed for ~1min
 				if len(completedSlice) > noSpeedPoints {
 					oldPieces := completedSlice[len(completedSlice)-noSpeedPoints]
 					if currentBytes == oldPieces {

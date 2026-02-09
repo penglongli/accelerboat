@@ -21,6 +21,8 @@ import (
 	"github.com/penglongli/accelerboat/pkg/utils/httpfile"
 )
 
+// CheckStaticLayer verifies a static layer file exists locally and optionally generates a torrent;
+// used by master when resolving layer location.
 func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 	req := &apitypes.CheckStaticLayerRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -43,7 +45,7 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 				"status": "error", "error": "content-length mismatch",
 			},
 		})
-		return nil, fmt.Errorf("local file '%s' content-length '%d', not same as expcted '%d'",
+		return nil, fmt.Errorf("local file '%s' content-length '%d', not same as expected '%d'",
 			req.LayerPath, fileSize, req.ExpectedContentLength)
 	}
 	resp := &apitypes.CheckStaticLayerResponse{
@@ -85,6 +87,7 @@ func (h *CustomHandler) CheckStaticLayer(c *gin.Context) (interface{}, error) {
 	return resp, nil
 }
 
+// CheckOCILayer generates an OCI layer on demand and returns its location/size; used by master when resolving OCI layer location.
 func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 	req := &apitypes.CheckOCILayerRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -124,10 +127,11 @@ func (h *CustomHandler) CheckOCILayer(c *gin.Context) (interface{}, error) {
 	}, nil
 }
 
+// TransferLayerTCP serves a layer file over HTTP (query param file=path); used for direct TCP transfer between nodes.
 func (h *CustomHandler) TransferLayerTCP(c *gin.Context) (interface{}, error) {
 	requestFile := c.Query("file")
 	if requestFile == "" {
-		return nil, errors.Errorf("quyer param 'file' cannot empty")
+		return nil, errors.Errorf("query param 'file' cannot be empty")
 	}
 	ctx := c.Request.Context()
 	var fileSize int64

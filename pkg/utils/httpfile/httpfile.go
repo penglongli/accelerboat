@@ -21,13 +21,14 @@ import (
 const blockSize = 4096
 
 func alignedBuffer(size int) []byte {
-	// 分配额外空间以保证对齐
+	// Allocate extra space for alignment
 	b := make([]byte, size+blockSize)
-	// 返回第一个对齐位置开始的 slice
+	// Return slice starting at the first aligned position
 	alignOffset := (blockSize - (uintptr(unsafe.Pointer(&b[0])) % blockSize)) % blockSize
 	return b[alignOffset : alignOffset+uintptr(size)]
 }
 
+// HTTPServeFile serves a file over HTTP using O_DIRECT when possible for efficient transfer.
 func HTTPServeFile(ctx context.Context, rw http.ResponseWriter, req *http.Request, reqFile string) error {
 	if fi, err := os.Stat(reqFile); err != nil {
 		return errors.Wrapf(err, "query file '%s' stat failed", reqFile)
@@ -44,7 +45,7 @@ func HTTPServeFile(ctx context.Context, rw http.ResponseWriter, req *http.Reques
 	}
 	defer file.Close()
 
-	buf := alignedBuffer(32 * 1024) // 对齐的 32KB buffer
+	buf := alignedBuffer(32 * 1024) // 32KB aligned buffer
 	if _, err = io.CopyBuffer(rw, file, buf); err != nil {
 		return errors.Wrapf(err, "io copy with file '%s' failed", reqFile)
 	}

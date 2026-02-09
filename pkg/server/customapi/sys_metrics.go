@@ -16,12 +16,12 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// MetricFamily 表示一个指标族，items 为强类型列表。
+// MetricFamily represents a metric family; Items is a strongly-typed list.
 type MetricFamily struct {
 	Items []MetricItem `json:"items"`
 }
 
-// MetricItem 单条指标：Counter/Gauge 用 Value，Histogram 用 Count+Sum。
+// MetricItem is a single metric: Counter/Gauge use Value; Histogram uses Count+Sum.
 type MetricItem struct {
 	Labels map[string]string `json:"labels"`
 	Value  float64           `json:"value,omitempty"`
@@ -29,7 +29,7 @@ type MetricItem struct {
 	Sum    float64           `json:"sum,omitempty"`
 }
 
-// customMetricNames 仅包含 pkg/metrics 中定义的自定义指标名（Prometheus 采集后的名称）。
+// customMetricNames contains only the custom metric names defined in pkg/metrics (names after Prometheus collection).
 var customMetricNames = []string{
 	"accelerboat_http_requests_total",
 	"accelerboat_http_request_duration_seconds",
@@ -45,6 +45,7 @@ var customMetricNames = []string{
 	"accelerboat_errors_total",
 }
 
+// Metrics returns Prometheus metrics in JSON or human-readable format (see HTTPWrapperWithOutput).
 func (h *CustomHandler) Metrics(c *gin.Context) (interface{}, string, error) {
 	data, err := gatherMetricsReadable()
 	if err != nil {
@@ -108,7 +109,7 @@ func buildMetricFamily(mf *dto.MetricFamily) MetricFamily {
 	return MetricFamily{Items: items}
 }
 
-// StatsMetrics 供 /customapi/stats 使用的聚合指标（磁盘、流量、错误、种子数）。
+// StatsMetrics holds aggregated metrics for /customapi/stats (disk usage, transfer size, errors, torrent count).
 type StatsMetrics struct {
 	DiskUsage         map[string]float64 // label -> GB
 	TransferSize      map[string]float64 // operation -> GB
@@ -116,7 +117,7 @@ type StatsMetrics struct {
 	TorrentActiveCount int
 }
 
-// getStatsMetrics 从 Prometheus 采集并汇总 stats 所需的四项指标。
+// getStatsMetrics gathers and aggregates the four metrics required for stats from Prometheus.
 func getStatsMetrics() (StatsMetrics, error) {
 	out := StatsMetrics{
 		DiskUsage:    make(map[string]float64),
@@ -234,18 +235,18 @@ func appendMetricSection(b *strings.Builder, name string, items []MetricItem) {
 
 func metricDisplayTitle(name string) string {
 	titles := map[string]string{
-		"accelerboat_http_requests_total":                "HTTP 请求 (按 method / path / status)",
-		"accelerboat_http_request_duration_seconds":      "HTTP 请求耗时",
-		"accelerboat_registry_requests_total":            "Registry 代理请求 (按 registry / type / status)",
-		"accelerboat_registry_request_duration_seconds":  "Registry 请求耗时",
-		"accelerboat_redis_operations_total":             "Redis 操作 (按 operation / status)",
-		"redis_operation_duration":                       "Redis 操作耗时",
-		"accelerboat_torrent_operations_total":           "Torrent 操作 (按 operation / status)",
-		"accelerboat_torrent_operation_duration_seconds": "Torrent 操作耗时",
-		"accelerboat_torrent_active_count":               "当前活跃 Torrent 数量",
-		"accelerboat_transfer_size":                      "传输体积 (GB)",
-		"accelerboat_disk_usage":                         "磁盘占用 (GB)",
-		"accelerboat_errors_total":                       "错误统计 (按 component / action)",
+		"accelerboat_http_requests_total":                "HTTP requests (by method / path / status)",
+		"accelerboat_http_request_duration_seconds":      "HTTP request duration",
+		"accelerboat_registry_requests_total":            "Registry proxy requests (by registry / type / status)",
+		"accelerboat_registry_request_duration_seconds":  "Registry request duration",
+		"accelerboat_redis_operations_total":             "Redis operations (by operation / status)",
+		"redis_operation_duration":                       "Redis operation duration",
+		"accelerboat_torrent_operations_total":           "Torrent operations (by operation / status)",
+		"accelerboat_torrent_operation_duration_seconds": "Torrent operation duration",
+		"accelerboat_torrent_active_count":               "Active torrent count",
+		"accelerboat_transfer_size":                      "Transfer size (GB)",
+		"accelerboat_disk_usage":                         "Disk usage (GB)",
+		"accelerboat_errors_total":                       "Error count (by component / action)",
 	}
 	if t, ok := titles[name]; ok {
 		return t
@@ -318,7 +319,7 @@ func writeHistogramSummary(b *strings.Builder, items []MetricItem) {
 		return
 	}
 	avg := totalSum / float64(totalCount)
-	b.WriteString(fmt.Sprintf("  [汇总] 请求数: %d, 总耗时: %.4g s, 平均: %.4g s\n", totalCount, totalSum, avg))
+	b.WriteString(fmt.Sprintf("  [Summary] requests: %d, total: %.4g s, avg: %.4g s\n", totalCount, totalSum, avg))
 }
 
 func writeSingleValue(b *strings.Builder, items []MetricItem) {
@@ -336,7 +337,7 @@ func writeGenericRows(b *strings.Builder, items []MetricItem) {
 	if len(items) == 0 {
 		return
 	}
-	// 收集所有 label keys 并排序
+	// Collect all label keys and sort them
 	keySet := make(map[string]struct{})
 	for _, it := range items {
 		for k := range it.Labels {

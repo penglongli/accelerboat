@@ -84,6 +84,7 @@ func (h *CustomHandler) saveAuthToken(authKey string, authToken *apitypes.Regist
 	logger.Infof("cache authkey %s set value %s", authKey, authToken.Token)
 }
 
+// GetServiceToken obtains a registry auth token from upstream and returns it (cached by originalHost, service, scope).
 func (h *CustomHandler) GetServiceToken(c *gin.Context) (interface{}, error) {
 	req := &apitypes.GetServiceTokenRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {

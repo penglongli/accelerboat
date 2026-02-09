@@ -22,6 +22,7 @@ func buildManifestKey(originalHost, repo, tag string) string {
 	return fmt.Sprintf("%s,%s,%s", originalHost, repo, tag)
 }
 
+// RegistryHeadManifest performs a HEAD request to the upstream registry for the image manifest and returns headers.
 func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error) {
 	req := &apitypes.HeadManifestRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
@@ -65,6 +66,7 @@ func (h *CustomHandler) RegistryHeadManifest(c *gin.Context) (interface{}, error
 	return &apitypes.HeadManifestResponse{Headers: result}, nil
 }
 
+// RegistryGetManifest fetches the image manifest from the upstream registry and returns the manifest body.
 func (h *CustomHandler) RegistryGetManifest(c *gin.Context) (interface{}, error) {
 	req := &apitypes.GetManifestRequest{}
 	if err := c.ShouldBindJSON(req); err != nil {
