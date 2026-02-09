@@ -7,7 +7,6 @@ package middleware
 import (
 	"context"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -33,7 +32,7 @@ func GinMiddleware() func(ctx *gin.Context) {
 		ctx.Writer.Header().Set(common.RequestIDHeaderKey, requestID)
 		ctx.Request.Header.Set(common.RequestIDHeaderKey, requestID)
 		req := ctx.Request
-		if !strings.Contains(req.RequestURI, apitypes.APIRecorder) {
+		if _, ok := apitypes.NotPrintLog[req.RequestURI]; !ok {
 			logger.InfoContextf(reqCtx, "received request: %s, %s%s", req.Method, req.Host, req.URL.String())
 		}
 		ctx.Next()

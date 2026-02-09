@@ -33,7 +33,7 @@ var (
 			Name:      "http_requests_total",
 			Help:      "Total number of HTTP requests by method, path and status.",
 		},
-		[]string{"method", "path", "status"},
+		[]string{"target", "method", "path", "status"},
 	)
 
 	HTTPRequestDurationSeconds = promauto.NewHistogramVec(
@@ -43,7 +43,7 @@ var (
 			Help:      "HTTP request latency in seconds.",
 			Buckets:   prometheus.DefBuckets,
 		},
-		[]string{"method", "path"},
+		[]string{"target", "method", "path"},
 	)
 
 	// RegistryRequestsTotal Registry proxy metrics (v2 registry traffic: auth, manifest, blob)
@@ -97,7 +97,7 @@ var (
 	TorrentOperationDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "registry_request_duration_seconds",
+			Name:      "torrent_operation_duration_seconds",
 			Help:      "Registry proxy request latency in seconds.",
 			Buckets:   prometheus.DefBuckets,
 		},

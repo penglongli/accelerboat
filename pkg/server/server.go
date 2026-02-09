@@ -28,6 +28,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/recorder"
 	"github.com/penglongli/accelerboat/pkg/server/common"
 	"github.com/penglongli/accelerboat/pkg/server/customapi"
+	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/server/middleware"
 	"github.com/penglongli/accelerboat/pkg/server/registry"
 	"github.com/penglongli/accelerboat/pkg/staticwatcher"
@@ -271,8 +272,12 @@ func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 			if path == "" {
 				path = req.URL.Path
 			}
-			metrics.HTTPRequestsTotal.WithLabelValues(method, path, strconv.Itoa(rec.Status())).Inc()
-			metrics.HTTPRequestDurationSeconds.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
+			if _, ok := apitypes.NotPrintLog[path]; ok {
+				return
+			}
+			metrics.HTTPRequestsTotal.WithLabelValues("localhost", method, path, strconv.Itoa(rec.Status())).Inc()
+			metrics.HTTPRequestDurationSeconds.WithLabelValues("localhost", method, path).
+				Observe(time.Since(start).Seconds())
 			return
 		}
 	}
@@ -294,8 +299,9 @@ func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 		return
 	}
 	upstreamProxy.ServeHTTP(requestURI, rec, req)
-	metrics.HTTPRequestsTotal.WithLabelValues(method, "registry", strconv.Itoa(rec.Status())).Inc()
+	metrics.HTTPRequestsTotal.WithLabelValues(proxyHost, method, "", strconv.Itoa(rec.Status())).Inc()
 	if !strings.Contains(req.URL.Path, "/blobs/") {
-		metrics.HTTPRequestDurationSeconds.WithLabelValues(method, "registry").Observe(time.Since(start).Seconds())
+		metrics.HTTPRequestDurationSeconds.WithLabelValues(proxyHost, method, proxyHost).
+			Observe(time.Since(start).Seconds())
 	}
 }

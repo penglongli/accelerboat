@@ -25,6 +25,17 @@ const (
 	APIConfig           = "/customapi/config"
 )
 
+var (
+	NotPrintLog = map[string]struct{}{
+		APIRecorder:      {},
+		APITorrentStatus: {},
+		APIStats:         {},
+		APIMetrics:       {},
+		APIConfig:        {},
+		"/metrics":       {},
+	}
+)
+
 type GetServiceTokenRequest struct {
 	OriginalHost    string              `json:"originalHost"`
 	ServiceTokenUrl string              `json:"serviceTokenUrl"`

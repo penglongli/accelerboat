@@ -17,7 +17,6 @@ type AccelerBoatOption struct {
 	Address     string `json:"address"`
 	HTTPPort    int64  `json:"httpPort"`
 	HTTPSPort   int64  `json:"httpsPort"`
-	MetricPort  int64  `json:"metricPort"`
 	TorrentPort int64  `json:"torrentPort"`
 
 	// LogConfig defines the log config
