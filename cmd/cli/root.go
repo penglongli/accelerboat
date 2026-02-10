@@ -65,7 +65,7 @@ func NewRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "accelerboat",
 		Short: "AccelerBoat CLI for Kubernetes",
-		Long:  "AccelerBoat CLI: manage and inspect AccelerBoat deployments via kubeconfig.",
+		Long:  Logo(),
 	}
 	cmd.PersistentFlags().StringVar(&globalKubeconfig, "kubeconfig", "", "Path to kubeconfig file (default: ~/.kube/config or value from config file)")
 	cmd.PersistentFlags().StringVarP(&globalNamespace, "namespace", "n", "", "Default namespace (default: accelerboat or value from config file)")
@@ -78,6 +78,8 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewMetricsCmd())
 	cmd.AddCommand(NewConfigCmd())
 	cmd.AddCommand(NewEventsCmd())
+	cmd.AddCommand(NewImagePreloadCmd())
+	cmd.AddCommand(NewImagePreloadCleanCmd())
 
 	return cmd
 }

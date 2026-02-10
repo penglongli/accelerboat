@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -243,4 +244,75 @@ func freeLocalPort() (int, error) {
 		return 0, err
 	}
 	return port, nil
+}
+
+// ListNodeNames returns the names of all nodes in the cluster.
+func (c *Client) ListNodeNames(ctx context.Context) ([]string, error) {
+	list, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	names := make([]string, 0, len(list.Items))
+	for i := range list.Items {
+		names = append(names, list.Items[i].Name)
+	}
+	return names, nil
+}
+
+// ListWorkerNodeNames returns the names of worker nodes only (master/control-plane nodes excluded).
+func (c *Client) ListWorkerNodeNames(ctx context.Context) ([]string, error) {
+	list, err := c.clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list nodes: %w", err)
+	}
+	names := make([]string, 0, len(list.Items))
+	for i := range list.Items {
+		n := &list.Items[i]
+		if _, hasControlPlane := n.Labels["node-role.kubernetes.io/control-plane"]; hasControlPlane {
+			continue
+		}
+		if _, hasMaster := n.Labels["node-role.kubernetes.io/master"]; hasMaster {
+			continue
+		}
+		names = append(names, n.Name)
+	}
+	return names, nil
+}
+
+// CreateJob creates a Job in the configured namespace.
+func (c *Client) CreateJob(ctx context.Context, job *batchv1.Job) (*batchv1.Job, error) {
+	return c.clientset.BatchV1().Jobs(c.namespace).Create(ctx, job, metav1.CreateOptions{})
+}
+
+// ListJobs returns Jobs in the configured namespace matching the label selector.
+func (c *Client) ListJobs(ctx context.Context, labelSelector string) (*batchv1.JobList, error) {
+	return c.clientset.BatchV1().Jobs(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+}
+
+// GetJob returns the named Job in the configured namespace.
+func (c *Client) GetJob(ctx context.Context, name string) (*batchv1.Job, error) {
+	return c.clientset.BatchV1().Jobs(c.namespace).Get(ctx, name, metav1.GetOptions{})
+}
+
+// DeleteJob deletes the named Job in the configured namespace and its dependent Pods (cascading delete).
+func (c *Client) DeleteJob(ctx context.Context, name string) error {
+	propagation := metav1.DeletePropagationBackground
+	return c.clientset.BatchV1().Jobs(c.namespace).Delete(ctx, name, metav1.DeleteOptions{
+		PropagationPolicy: &propagation,
+	})
+}
+
+// ListPodsBySelector returns pods in the configured namespace matching the label selector.
+func (c *Client) ListPodsBySelector(ctx context.Context, labelSelector string) (*corev1.PodList, error) {
+	return c.clientset.CoreV1().Pods(c.namespace).List(ctx, metav1.ListOptions{LabelSelector: labelSelector})
+}
+
+// DeletePod deletes the named Pod in the configured namespace.
+func (c *Client) DeletePod(ctx context.Context, name string) error {
+	return c.clientset.CoreV1().Pods(c.namespace).Delete(ctx, name, metav1.DeleteOptions{})
+}
+
+// ListEvents returns events in the configured namespace for the given field selector (e.g. involvedObject.name=pod-name).
+func (c *Client) ListEvents(ctx context.Context, fieldSelector string) (*corev1.EventList, error) {
+	return c.clientset.CoreV1().Events(c.namespace).List(ctx, metav1.ListOptions{FieldSelector: fieldSelector})
 }
