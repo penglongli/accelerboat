@@ -20,7 +20,6 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
 	"github.com/penglongli/accelerboat/pkg/logger"
-	"github.com/penglongli/accelerboat/pkg/recorder"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
 	"github.com/penglongli/accelerboat/pkg/store"
@@ -74,13 +73,6 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	defer h.downloadLayerLock.UnLock(ctx, req.Digest)
 	resp, err := h.checkLayerHasCached(ctx, req, contentLength)
 	if err == nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetLayerInfo,
-			Details: map[string]interface{}{
-				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-				"source": "cache", "status": "success", "located": resp.Located, "file_size": resp.FileSize,
-			},
-		})
 		return resp, nil
 	}
 
@@ -89,23 +81,9 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	if contentLength < options.TwentyMB {
 		resultPath := path.Join(h.op.StorageConfig.SmallFilePath, utils.LayerFileName(req.Digest))
 		if err = h.requestDownloadLayer(ctx, req, resultPath); err != nil {
-			recorder.Global.Record(recorder.Event{
-				Type: recorder.EventTypeGetLayerInfo,
-				Details: map[string]interface{}{
-					"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-					"source": "small_registry", "status": "error", "error": err.Error(),
-				},
-			})
 			return nil, fmt.Errorf("download small-layer from original registry '%s/%s' failed",
 				req.OriginalHost, req.LayerUrl)
 		}
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetLayerInfo,
-			Details: map[string]interface{}{
-				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-				"source": "small_registry", "status": "success", "located": h.op.Address, "file_size": contentLength,
-			},
-		})
 		return &apitypes.DownloadLayerResponse{
 			Located:  h.op.Address,
 			FilePath: resultPath,
@@ -114,22 +92,8 @@ func (h *CustomHandler) GetLayerInfo(c *gin.Context) (interface{}, error) {
 	}
 	// distribute the layer download task to other nodes.
 	if resp, err = h.distributeDownloadLayer(ctx, req); err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetLayerInfo,
-			Details: map[string]interface{}{
-				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-				"source": "distribute", "status": "error", "error": err.Error(),
-			},
-		})
 		return nil, err
 	}
-	recorder.Global.Record(recorder.Event{
-		Type: recorder.EventTypeGetLayerInfo,
-		Details: map[string]interface{}{
-			"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-			"source": "distribute", "status": "success", "located": resp.Located, "file_size": resp.FileSize,
-		},
-	})
 	return resp, nil
 }
 
@@ -276,28 +240,13 @@ func (h *CustomHandler) DownloadLayer(c *gin.Context) (interface{}, error) {
 	}
 	resultPath := path.Join(h.op.StorageConfig.TransferPath, utils.LayerFileName(req.Digest))
 	ctx := c.Request.Context()
-	start := time.Now()
 	if err := h.requestDownloadLayer(ctx, req, resultPath); err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeDownloadLayer,
-			Details: map[string]interface{}{
-				"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-				"status": "error", "error": err.Error(),
-			},
-		})
 		return nil, errors.Wrapf(err, "download layer failed")
 	}
 	fileSize, err := checkLocalLayer(resultPath)
 	if err != nil {
 		return nil, errors.Wrapf(err, "check local layer failed")
 	}
-	recorder.Global.Record(recorder.Event{
-		Type: recorder.EventTypeDownloadLayer,
-		Details: map[string]interface{}{
-			"registry": req.OriginalHost, "repo": req.Repo, "digest": req.Digest,
-			"status": "success", "located": h.op.Address, "file_size": fileSize, "duration_ms": time.Since(start).Milliseconds(),
-		},
-	})
 	resp := &apitypes.DownloadLayerResponse{
 		Located:  h.op.Address,
 		FilePath: resultPath,

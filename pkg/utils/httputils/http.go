@@ -63,7 +63,7 @@ func SendHTTPRequestReturnResponse(ctx context.Context, hr *HTTPRequest) (*http.
 	}
 	if resp.StatusCode != http.StatusOK {
 		return resp, nil, fmt.Errorf("http response %d: %s", resp.StatusCode,
-			utils.BytesToString(respBody))
+			strings.ReplaceAll(utils.BytesToString(respBody), "\n", "\\n"))
 	}
 	return resp, respBody, nil
 }

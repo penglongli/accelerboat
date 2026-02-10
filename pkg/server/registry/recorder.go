@@ -5,6 +5,8 @@
 package registry
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -13,124 +15,150 @@ import (
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
 )
 
-func (p *upstreamProxy) recorderReverseProxy(req *http.Request) {
+func (p *upstreamProxy) recorderReverseProxy(ctx context.Context, req *http.Request) {
 	if req.URL.Path == "/v2/" {
 		return
 	}
-	recorder.Global.Record(recorder.Event{
-		Type: recorder.EventTypeReverseProxy,
+	recorder.Global.Record(ctx, recorder.Event{
+		Type:        recorder.EventTypeReverseProxy,
+		EventStatus: recorder.Normal,
 		Details: map[string]interface{}{
 			"registry": p.originalHost, "method": req.Method, "path": req.URL.Path,
 		},
+		Message: fmt.Sprintf("Reverse proxy request"),
 	})
 	metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeReverseProxy),
 		"forwarded").Inc()
 }
 
-func (p *upstreamProxy) recorderServiceToken(start time.Time, master, service, scope string, err error) {
+func (p *upstreamProxy) recorderReverseProxyFailed(ctx context.Context, req *http.Request, err error) {
+	if req.URL.Path == "/v2/" {
+		return
+	}
+	recorder.Global.Record(ctx, recorder.Event{
+		Type:        recorder.EventTypeReverseProxy,
+		EventStatus: recorder.Warning,
+		Details: map[string]interface{}{
+			"registry": p.originalHost, "method": req.Method, "path": req.URL.Path,
+		},
+		Message: fmt.Sprintf("Reverse proxy request occurred error: %s", err.Error()),
+	})
+	metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeReverseProxy),
+		"error").Inc()
+}
+
+func (p *upstreamProxy) recorderServiceToken(ctx context.Context, start time.Time, master, service, scope string,
+	err error) {
 	duration := time.Since(start)
 	metrics.RegistryRequestDurationSeconds.WithLabelValues(p.originalHost, string(recorder.EventTypeServiceToken)).
 		Observe(duration.Seconds())
+	details := map[string]interface{}{
+		"registry": p.originalHost, "service": service, "scope": scope,
+		"duration_ms": duration.Milliseconds(), "master": master,
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeServiceToken,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "status": "error",
-				"service": service, "scope": scope,
-				"duration_ms": duration.Milliseconds(), "master": master, "error": err.Error(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeServiceToken,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Get servicetoken from master failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeServiceToken),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeServiceToken,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "status": "success",
-				"service": service, "scope": scope,
-				"duration_ms": duration.Milliseconds(), "master": master,
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeServiceToken,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Get servicetoken from master success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeServiceToken),
 			"success").Inc()
 	}
 }
 
-func (p *upstreamProxy) recorderHeadManifest(start time.Time, master, repo, tag string, err error) {
+func (p *upstreamProxy) recorderHeadManifest(ctx context.Context, start time.Time, master,
+	repo, tag string, err error) {
 	duration := time.Since(start)
 	metrics.RegistryRequestDurationSeconds.WithLabelValues(p.originalHost, string(recorder.EventTypeHeadManifest)).
 		Observe(duration.Seconds())
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "tag": tag, "duration_ms": duration.Milliseconds(),
+		"master": master,
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeHeadManifest,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "tag": tag,
-				"status": "error", "duration_ms": duration.Milliseconds(), "error": err.Error(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeHeadManifest,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Head manifest from master failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeHeadManifest),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeHeadManifest,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "tag": tag,
-				"status": "success", "duration_ms": duration.Milliseconds(), "master": master,
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeHeadManifest,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Head manifest from master success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeHeadManifest),
 			"success").Inc()
 	}
 }
 
-func (p *upstreamProxy) recorderGetManifest(start time.Time, master, repo, tag, manifest string, err error) {
+func (p *upstreamProxy) recorderGetManifest(ctx context.Context, start time.Time, master, repo, tag,
+	manifest string, err error) {
 	duration := time.Since(start)
 	metrics.RegistryRequestDurationSeconds.WithLabelValues(p.originalHost, string(recorder.EventTypeGetManifest)).
 		Observe(duration.Seconds())
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "tag": tag, "duration_ms": duration.Milliseconds(),
+		"master": master,
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetManifest,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "tag": tag,
-				"status": "error", "duration_ms": duration.Milliseconds(), "error": err.Error(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeGetManifest,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Get manifest from master failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeGetManifest),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetManifest,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "tag": tag,
-				"status": "success", "duration_ms": duration.Milliseconds(), "master": master,
-				"data": manifest,
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeGetManifest,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Get manifest from master success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeGetManifest),
 			"success").Inc()
 	}
 }
 
-func (p *upstreamProxy) recorderServeBlobFromLocal(start time.Time, repo, digest string, size int64, err error) {
+func (p *upstreamProxy) recorderServeBlobFromLocal(ctx context.Context, start time.Time, repo, digest string,
+	size int64, err error) {
 	duration := time.Since(start)
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "digest": digest, "duration_ms": duration.Milliseconds(),
+		"size": size,
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventServeBlobFromLocal,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "error", "duration_ms": duration.Milliseconds(),
-				"error": "serve local failed",
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventServeBlobFromLocal,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Serve blob to client from local failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventServeBlobFromLocal),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventServeBlobFromLocal,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "success", "duration_ms": duration.Milliseconds(), "size": size,
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventServeBlobFromLocal,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Serve blob to client from local success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventServeBlobFromLocal),
 			"success").Inc()
@@ -138,56 +166,58 @@ func (p *upstreamProxy) recorderServeBlobFromLocal(start time.Time, repo, digest
 	}
 }
 
-func (p *upstreamProxy) recorderGetBlobFromMaster(start time.Time, master, repo, digest string,
+func (p *upstreamProxy) recorderGetBlobFromMaster(ctx context.Context, start time.Time, master, repo, digest string,
 	layerResp *apitypes.DownloadLayerResponse, err error) {
 	duration := time.Since(start)
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"duration_ms": duration.Milliseconds(), "master": master,
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetBlobFromMaster,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "error", "duration_ms": duration.Milliseconds(), "error": err.Error(),
-				"master": master,
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeGetBlobFromMaster,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Get blob from master failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost,
 			string(recorder.EventTypeGetBlobFromMaster), "error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeGetBlobFromMaster,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "success", "duration_ms": duration.Milliseconds(),
-				"master": master, "data": layerResp.ToJSONString(),
-			},
+		details["data"] = layerResp.ToJSONString()
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeGetBlobFromMaster,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Get blob from master success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost,
 			string(recorder.EventTypeGetBlobFromMaster), "success").Inc()
 	}
 }
 
-func (p *upstreamProxy) recorderDownloadBlobByTCP(start time.Time, repo, digest string,
+func (p *upstreamProxy) recorderDownloadBlobByTCP(ctx context.Context, start time.Time, repo, digest string,
 	layerResp *apitypes.DownloadLayerResponse, err error) {
 	duration := time.Since(start)
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"duration_ms": duration.Milliseconds(),
+		"data":        layerResp.ToJSONString(),
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeDownloadBlobByTCP,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "error", "duration_ms": duration.Milliseconds(), "error": err.Error(),
-				"data": layerResp.ToJSONString(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeDownloadBlobByTCP,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Download blob by tcp failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTCP),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeDownloadBlobByTCP,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "success", "duration_ms": duration.Milliseconds(),
-				"data": layerResp.ToJSONString(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeDownloadBlobByTCP,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Download blob by tcp success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTCP),
 			"success").Inc()
@@ -195,28 +225,29 @@ func (p *upstreamProxy) recorderDownloadBlobByTCP(start time.Time, repo, digest 
 	}
 }
 
-func (p *upstreamProxy) recorderDownloadBlobByTorrent(start time.Time, repo, digest string,
+func (p *upstreamProxy) recorderDownloadBlobByTorrent(ctx context.Context, start time.Time, repo, digest string,
 	layerResp *apitypes.DownloadLayerResponse, err error) {
 	duration := time.Since(start)
+	details := map[string]interface{}{
+		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"duration_ms": duration.Milliseconds(),
+		"data":        layerResp.ToJSONString(),
+	}
 	if err != nil {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeDownloadBlobByTorrent,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "error", "duration_ms": duration.Milliseconds(), "error": err.Error(),
-				"data": layerResp.ToJSONString(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeDownloadBlobByTorrent,
+			EventStatus: recorder.Warning,
+			Details:     details,
+			Message:     fmt.Sprintf("Download blob by torrent failed: %s", err.Error()),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTorrent),
 			"error").Inc()
 	} else {
-		recorder.Global.Record(recorder.Event{
-			Type: recorder.EventTypeDownloadBlobByTorrent,
-			Details: map[string]interface{}{
-				"registry": p.originalHost, "repo": repo, "digest": digest,
-				"status": "success", "duration_ms": duration.Milliseconds(),
-				"data": layerResp.ToJSONString(),
-			},
+		recorder.Global.Record(ctx, recorder.Event{
+			Type:        recorder.EventTypeDownloadBlobByTorrent,
+			EventStatus: recorder.Normal,
+			Details:     details,
+			Message:     fmt.Sprintf("Download blob by torrent success"),
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTorrent),
 			"success").Inc()

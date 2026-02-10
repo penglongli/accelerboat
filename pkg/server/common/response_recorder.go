@@ -28,3 +28,11 @@ func (r *ResponseRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Flush implements http.Flusher so that streaming handlers (e.g. /customapi/recorder with follow=true)
+// can flush chunked data to the client. If the underlying ResponseWriter supports Flusher, it is delegated.
+func (r *ResponseRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}

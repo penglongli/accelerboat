@@ -11,14 +11,19 @@ package recorder
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
+
+	"github.com/penglongli/accelerboat/pkg/logger"
+	"github.com/penglongli/accelerboat/pkg/server/common"
 )
 
 const (
@@ -41,7 +46,6 @@ const (
 	EventTypeServiceToken          EventType = "service_token"
 	EventTypeHeadManifest          EventType = "head_manifest"
 	EventTypeGetManifest           EventType = "get_manifest"
-	EventTypeGetBlob               EventType = "get_blob"
 	EventServeBlobFromLocal        EventType = "serve_blob_from_local"
 	EventTypeGetBlobFromMaster     EventType = "get_blob_from_master"
 	EventTypeDownloadBlobByTCP     EventType = "download_blob_by_tcp"
@@ -54,24 +58,44 @@ const (
 	EventTypeTransferLayer         EventType = "transfer_layer_tcp"
 )
 
+type EventStatus string
+
+const (
+	// Normal type of event
+	Normal EventStatus = "Normal"
+	// Warning type of event
+	Warning EventStatus = "Warning"
+)
+
 // Event represents a single recorded operation.
 type Event struct {
-	Type      EventType              `json:"type"`
-	Timestamp time.Time              `json:"timestamp"`
-	Details   map[string]interface{} `json:"details,omitempty"`
+	Type        EventType              `json:"type"`
+	Timestamp   time.Time              `json:"timestamp"`
+	RequestID   string                 `json:"requestID,omitempty"`
+	EventStatus EventStatus            `json:"eventStatus,omitempty"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+	Message     string                 `json:"message,omitempty"`
 }
 
 // Recorder records events in a bounded in-memory buffer.
 // Optionally writes each event to a rotating file asynchronously when InitEventFile was called.
+// When event file is enabled, List() reads from the file(s) so that data survives restarts.
 type Recorder struct {
-	mu      sync.RWMutex
-	events  []Event
-	size    int
-	next    int
-	count   int
-	fileCh  chan Event // nil when file disabled; buffered for async write
-	fileWg  sync.WaitGroup
+	mu         sync.RWMutex
+	events     []Event
+	size       int
+	next       int
+	count      int
+	fileCh     chan Event // nil when file disabled; buffered for async write
+	fileWg     sync.WaitGroup
 	fileClosed atomic.Bool
+
+	subsMu sync.RWMutex
+	subs   []chan Event // buffered channels for follow mode; each has cap 256
+
+	eventFileMu        sync.RWMutex
+	eventFilePath      string // set when InitEventFile is called; used by List() to read from file
+	eventFileMaxBackups int   // number of rotated backups to consider when reading
 }
 
 // Global returns the global recorder instance (singleton).
@@ -116,6 +140,10 @@ func (r *Recorder) InitEventFile(eventFile string, maxSizeMB, maxBackups int) er
 	bw := bufio.NewWriterSize(lj, 64*1024)
 	ch := make(chan Event, eventFileChanCap)
 	r.fileCh = ch
+	r.eventFileMu.Lock()
+	r.eventFilePath = eventFile
+	r.eventFileMaxBackups = maxBackups
+	r.eventFileMu.Unlock()
 	r.fileWg.Add(1)
 	go r.runFileWriter(bw, ch)
 	return nil
@@ -160,13 +188,35 @@ func (r *Recorder) CloseEventFile() {
 	r.fileWg.Wait()
 }
 
+// Subscribe returns a channel that receives a copy of each new event from now on.
+// Buffer size is 256; if the subscriber does not drain in time, new events are dropped for that subscriber.
+// The caller must call the returned unsub function when done to close the channel and stop receiving.
+func (r *Recorder) Subscribe() (ch <-chan Event, unsub func()) {
+	c := make(chan Event, 256)
+	r.subsMu.Lock()
+	r.subs = append(r.subs, c)
+	r.subsMu.Unlock()
+	return c, func() {
+		r.subsMu.Lock()
+		defer r.subsMu.Unlock()
+		for i, sub := range r.subs {
+			if sub == c {
+				r.subs = append(r.subs[:i], r.subs[i+1:]...)
+				close(c)
+				return
+			}
+		}
+	}
+}
+
 // Record appends one event. If the buffer is full, the oldest event is overwritten.
 // When event file is enabled, the event is enqueued for async write; Record() does not wait for disk.
 // If the write queue is full, the event is still kept in the in-memory ring buffer but may not be written to file.
-func (r *Recorder) Record(ev Event) {
+func (r *Recorder) Record(ctx context.Context, ev Event) {
 	if ev.Timestamp.IsZero() {
 		ev.Timestamp = time.Now()
 	}
+	ev.RequestID = logger.GetContextField(ctx, common.RequestIDHeaderKey)
 	r.mu.Lock()
 	r.events[r.next] = ev
 	r.next = (r.next + 1) % r.size
@@ -176,36 +226,96 @@ func (r *Recorder) Record(ev Event) {
 	r.mu.Unlock()
 
 	ch := r.fileCh
-	if ch == nil || r.fileClosed.Load() {
-		return
+	if ch != nil && !r.fileClosed.Load() {
+		select {
+		case ch <- ev:
+		default:
+			// Queue full; drop file write to avoid blocking the caller. Ring buffer already has the event.
+		}
 	}
-	select {
-	case ch <- ev:
-	default:
-		// Queue full; drop file write to avoid blocking the caller. Ring buffer already has the event.
+
+	// Notify follow subscribers (non-blocking)
+	r.subsMu.RLock()
+	subs := make([]chan Event, len(r.subs))
+	copy(subs, r.subs)
+	r.subsMu.RUnlock()
+	for _, sub := range subs {
+		select {
+		case sub <- ev:
+		default:
+			// Subscriber slow; drop for this subscriber
+		}
 	}
 }
 
-// RecordSimple records an event with the given type and optional detail key-values.
-// Keys and values are interleaved: key1, val1, key2, val2, ... Odd length panics.
-func (r *Recorder) RecordSimple(typ EventType, kvs ...interface{}) {
-	details := make(map[string]interface{})
-	for i := 0; i+1 < len(kvs); i += 2 {
-		key, ok := kvs[i].(string)
-		if !ok {
+// listFromFile reads events from the event file(s) in chronological order and returns the last limit events.
+// File order: eventFile.MaxBackups (oldest), ..., eventFile.1, eventFile (newest). Skips unreadable or invalid lines.
+func (r *Recorder) listFromFile(eventFile string, maxBackups, limit int) []Event {
+	if limit <= 0 {
+		limit = 100
+	}
+	var events []Event
+	// Build list of paths from oldest to newest: eventFile.5, eventFile.4, ..., eventFile.1, eventFile
+	for i := maxBackups; i >= 1; i-- {
+		path := eventFile + "." + strconv.Itoa(i)
+		r.readEventsFromPath(path, &events, limit)
+	}
+	r.readEventsFromPath(eventFile, &events, limit)
+	if len(events) == 0 {
+		return nil
+	}
+	// Keep only the last limit events (we may have read more)
+	if len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+	return events
+}
+
+// readEventsFromPath appends events from path (JSONL) into events, keeping at most limit in the sliding window.
+func (r *Recorder) readEventsFromPath(path string, events *[]Event, limit int) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	scanner := bufio.NewScanner(f)
+	// Increase buffer for long lines (e.g. large message)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
 			continue
 		}
-		details[key] = kvs[i+1]
+		var ev Event
+		if err := json.Unmarshal(line, &ev); err != nil {
+			continue
+		}
+		*events = append(*events, ev)
+		if len(*events) > limit {
+			*events = (*events)[1:]
+		}
 	}
-	r.Record(Event{Type: typ, Timestamp: time.Now(), Details: details})
 }
 
 // List returns the most recent events, up to limit. Oldest of the returned set is first.
 // If limit <= 0, default 100 is used.
+// When event file is enabled (InitEventFile was called), List reads from the file(s) so data survives restarts.
+// Otherwise List reads from the in-memory ring buffer.
 func (r *Recorder) List(limit int) []Event {
 	if limit <= 0 {
 		limit = 100
 	}
+	r.eventFileMu.RLock()
+	eventFile := r.eventFilePath
+	maxBackups := r.eventFileMaxBackups
+	r.eventFileMu.RUnlock()
+
+	if eventFile != "" {
+		return r.listFromFile(eventFile, maxBackups, limit)
+	}
+
+	// No event file configured: read from in-memory ring buffer
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	n := r.count
@@ -216,7 +326,6 @@ func (r *Recorder) List(limit int) []Event {
 		return nil
 	}
 	out := make([]Event, n)
-	// Oldest is at (r.next - r.count + r.size) % r.size when count == size; else 0
 	start := 0
 	if r.count == r.size {
 		start = (r.next - r.count + r.size) % r.size

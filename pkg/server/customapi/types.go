@@ -80,7 +80,7 @@ func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 
 	ginSvr.Handle(http.MethodPost, apitypes.APIGetLayerInfo, h.HTTPWrapper(h.GetLayerInfo))
 	ginSvr.Handle(http.MethodGet, apitypes.APIDownloadLayer, h.HTTPWrapper(h.DownloadLayer))
-	ginSvr.Handle(http.MethodGet, apitypes.APIRecorder, h.HTTPWrapper(h.Recorder))
+	ginSvr.Handle(http.MethodGet, apitypes.APIRecorder, h.RecorderHandler)
 	ginSvr.Handle(http.MethodGet, apitypes.APITorrentStatus, h.HTTPWrapper(h.TorrentStatus))
 
 	ginSvr.Handle(http.MethodGet, apitypes.APITransferLayerTCP, h.HTTPWrapper(h.TransferLayerTCP))

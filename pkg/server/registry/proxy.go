@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -102,6 +103,7 @@ func (p *upstreamProxy) initReverseProxy() {
 			metrics.RecordError(metrics.ComponentReverseProxy, "reverse_proxy")
 			logger.ErrorContextf(req.Context(), "reverse proxy to '%s, %s' failed: %s (req-headers: %+v)",
 				req.Method, req.URL.String(), err.Error(), req.Header)
+			p.recorderReverseProxyFailed(req.Context(), req, err)
 		},
 		Transport: p.op.HTTPProxyTransport(),
 		ModifyResponse: func(resp *http.Response) error {
@@ -158,6 +160,7 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 		}
 		logger.ErrorContextf(ctx, "service-token request failed and will reverse: %s", err.Error())
 	case isHeadManifest:
+		ctx = logger.WithContextFields(ctx, "repo", headManifestRepo, "tag", headManifestTag)
 		if auth := req.Header.Get("Authorization"); auth != "" {
 			err = p.handleHeadManifest(ctx, req, rw, headManifestRepo, headManifestTag)
 			if err == nil {
@@ -167,11 +170,13 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 		}
 	case isGetManifest:
 		ctx = logger.WithContextFields(ctx, "repo", manifestRepo, "tag", manifestTag)
-		err = p.handleGetManifest(ctx, req, rw, manifestRepo, manifestTag)
-		if err == nil {
-			return
+		if auth := req.Header.Get("Authorization"); auth != "" {
+			err = p.handleGetManifest(ctx, req, rw, manifestRepo, manifestTag)
+			if err == nil {
+				return
+			}
+			logger.ErrorContextf(ctx, "get-manifest request failed and will reverse: %s", err.Error())
 		}
-		logger.ErrorContextf(ctx, "get-manifest request failed and will reverse: %s", err.Error())
 	case isGetBlob:
 		ctx = logger.WithContextFields(ctx, "repo", blobRepo, "digest", digest)
 		if err = p.handleGetBlob(ctx, req, rw, blobRepo, digest); err == nil {
@@ -180,7 +185,7 @@ func (p *upstreamProxy) ServeHTTP(requestURI string, rw http.ResponseWriter, req
 		logger.ErrorContextf(ctx, "get-blob request failed: %s", err.Error())
 	}
 	req = req.WithContext(ctx)
-	p.recorderReverseProxy(req)
+	p.recorderReverseProxy(ctx, req)
 	p.reverseProxy.ServeHTTP(rw, req)
 }
 
@@ -196,7 +201,7 @@ func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Req
 		Scope:           scope,
 	}
 	master, serviceToken, err := requester.GetServiceToken(ctx, getServiceTokenReq)
-	p.recorderServiceToken(start, master, service, scope, err)
+	p.recorderServiceToken(ctx, start, master, service, scope, err)
 	if err != nil {
 		return err
 	}
@@ -211,7 +216,6 @@ func (p *upstreamProxy) handleGetServiceToken(ctx context.Context, req *http.Req
 func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Request, rw http.ResponseWriter,
 	repo, tag string) error {
 	start := time.Now()
-	ctx = logger.WithContextFields(ctx, "repo", repo, "tag", tag)
 	logger.InfoContextf(ctx, "handle head-manifest request")
 	headManifestReq := &apitypes.HeadManifestRequest{
 		OriginalHost:    req.Host,
@@ -221,7 +225,7 @@ func (p *upstreamProxy) handleHeadManifest(ctx context.Context, req *http.Reques
 		Tag:             tag,
 	}
 	master, respHeaders, err := requester.HeadManifest(ctx, headManifestReq)
-	p.recorderHeadManifest(start, master, repo, tag, err)
+	p.recorderHeadManifest(ctx, start, master, repo, tag, err)
 	if err != nil {
 		return err
 	}
@@ -247,7 +251,7 @@ func (p *upstreamProxy) handleGetManifest(ctx context.Context, req *http.Request
 		Tag:          tag,
 	}
 	master, manifest, err := requester.GetManifest(ctx, getManifestReq)
-	p.recorderGetManifest(start, master, repo, tag, manifest, err)
+	p.recorderGetManifest(ctx, start, master, repo, tag, manifest, err)
 	if err != nil {
 		return err
 	}
@@ -268,10 +272,10 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 		start := time.Now()
 		p.layerLock.UnLock(ctx, digest)
 		if p.downloadLayerFromLocalLimit(ctx, digest, req, rw) {
-			p.recorderServeBlobFromLocal(start, repo, digest, lfi.Size(), nil)
+			p.recorderServeBlobFromLocal(ctx, start, repo, digest, lfi.Size(), nil)
 			return nil
 		}
-		p.recorderServeBlobFromLocal(start, repo, digest, lfi.Size(),
+		p.recorderServeBlobFromLocal(ctx, start, repo, digest, lfi.Size(),
 			fmt.Errorf("serve local file '%s' not success", lp))
 		return fmt.Errorf("download from local '%s' not success(local exist)", lp)
 	}
@@ -287,7 +291,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	}
 	start := time.Now()
 	layerResp, master, err := requester.DownloadLayerFromMaster(ctx, layerReq, digest)
-	p.recorderGetBlobFromMaster(start, master, repo, digest, layerResp, err)
+	p.recorderGetBlobFromMaster(ctx, start, master, repo, digest, layerResp, err)
 	if err != nil {
 		return errors.Wrapf(err, "download layer from master failed, master=%s", master)
 	}
@@ -303,7 +307,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	// Because when we download the layer from the master, the master may assign the task of downloading the
 	// layer to us. When we get the layer information, the layer may have been downloaded to the current node.
 	if p.downloadLayerFromLocalLimit(ctx, digest, req, rw) {
-		p.recorderServeBlobFromLocal(start, repo, digest, layerResp.FileSize, nil)
+		p.recorderServeBlobFromLocal(ctx, start, repo, digest, layerResp.FileSize, nil)
 		return nil
 	}
 
@@ -313,10 +317,10 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	}
 	// Serve blob layer from local to client(docker/containerd)
 	if p.downloadLayerFromLocalLimit(ctx, digest, req, rw) {
-		p.recorderServeBlobFromLocal(start, repo, digest, layerResp.FileSize, nil)
+		p.recorderServeBlobFromLocal(ctx, start, repo, digest, layerResp.FileSize, nil)
 		return nil
 	}
-	p.recorderServeBlobFromLocal(start, repo, digest, layerResp.FileSize,
+	p.recorderServeBlobFromLocal(ctx, start, repo, digest, layerResp.FileSize,
 		fmt.Errorf("download from local not success"))
 	return fmt.Errorf("download layer from local not success(after download)")
 }
@@ -362,11 +366,13 @@ func (p *upstreamProxy) downloadLayerFromLocal(ctx context.Context, digest strin
 		return false
 	}
 	logger.InfoContextf(ctx, "download layer from local starting")
+	start := time.Now()
 	if err := httpfile.HTTPServeFile(ctx, rw, req, layerPath); err != nil {
 		logger.WarnContextf(ctx, "download layer from local failed with error: %s", err.Error())
 		return false
 	}
-	logger.InfoContextf(ctx, "download layer from local success. Content-Length: %d", layerFileInfo.Size())
+	logger.InfoContextf(ctx, "download layer from local success. Content-Length: %d, Cost: %v",
+		layerFileInfo.Size(), time.Since(start))
 	return true
 }
 
@@ -376,7 +382,7 @@ func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *apitypes.
 	// download layer from target directly with tcp
 	if resp.TorrentBase64 == "" {
 		err := p.downloadByTCP(ctx, resp.Located, resp.FilePath, digest)
-		p.recorderDownloadBlobByTCP(start, repo, digest, resp, err)
+		p.recorderDownloadBlobByTCP(ctx, start, repo, digest, resp, err)
 		if err != nil {
 			return errors.Wrapf(err, "download by tcp failed")
 		}
@@ -384,7 +390,7 @@ func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *apitypes.
 	}
 
 	err := p.torrentHandler.DownloadTorrent(ctx, digest, resp.TorrentBase64, resp.FilePath)
-	p.recorderDownloadBlobByTorrent(start, repo, digest, resp, err)
+	p.recorderDownloadBlobByTorrent(ctx, start, repo, digest, resp, err)
 	if err == nil {
 		return nil
 	} else {
@@ -393,7 +399,7 @@ func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *apitypes.
 	}
 
 	err = p.downloadByTCP(ctx, resp.Located, resp.FilePath, digest)
-	p.recorderDownloadBlobByTCP(start, repo, digest, resp, err)
+	p.recorderDownloadBlobByTCP(ctx, start, repo, digest, resp, err)
 	if err != nil {
 		return errors.Wrapf(err, "download by tcp failed")
 	}
@@ -433,13 +439,58 @@ func (p *upstreamProxy) saveLayerToLocal(ctx context.Context, resp *http.Respons
 		return errors.Wrapf(err, "create file %s failed", tmpFile)
 	}
 	defer out.Close()
-	if _, err = io.Copy(out, resp.Body); err != nil {
+
+	start := time.Now()
+	var written atomic.Int64
+	total := resp.ContentLength
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				n := written.Load()
+				if total >= 0 {
+					pct := float64(n) / float64(total) * 100
+					logger.InfoContextf(ctx, "layer download progress: %s / %s (%.1f%%) digest=%s",
+						formatutils.FormatSize(n), formatutils.FormatSize(total), pct, digest)
+				} else {
+					logger.InfoContextf(ctx, "layer download progress: %s downloaded digest=%s",
+						formatutils.FormatSize(n), digest)
+				}
+			}
+		}
+	}()
+
+	writer := &progressWriter{w: out, written: &written}
+	if _, err = io.Copy(writer, resp.Body); err != nil {
+		close(done)
 		return errors.Wrapf(err, "download-by-tcp io.copy failed")
 	}
-	logger.InfoContextf(ctx, "layer download to local '%s' success", tmpFile)
+	close(done)
+
+	logger.InfoContextf(ctx, "layer download to local '%s' success, total %s, cost: %v",
+		tmpFile, formatutils.FormatSize(written.Load()), time.Since(start))
 	if err = os.Rename(tmpFile, newFile); err != nil {
 		return errors.Wrapf(err, "rename file %s to %s failed", tmpFile, newFile)
 	}
 	logger.InfoContextf(ctx, "rename file %s to %s success", tmpFile, newFile)
 	return nil
+}
+
+// progressWriter wraps io.Writer and counts written bytes for progress logging.
+type progressWriter struct {
+	w       io.Writer
+	written *atomic.Int64
+}
+
+func (pw *progressWriter) Write(p []byte) (n int, err error) {
+	n, err = pw.w.Write(p)
+	if n > 0 {
+		pw.written.Add(int64(n))
+	}
+	return n, err
 }

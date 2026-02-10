@@ -107,6 +107,10 @@ func (th *TorrentHandler) Init() error {
 	return nil
 }
 
+func (th *TorrentHandler) GetClient() *torrent.Client {
+	return th.client
+}
+
 func (th *TorrentHandler) getLayerFiles(path string) ([]string, error) {
 	layerFiles := make([]string, 0)
 	if err := filepath.Walk(path, func(fp string, info fs.FileInfo, err error) error {
