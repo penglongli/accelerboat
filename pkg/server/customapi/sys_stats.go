@@ -7,6 +7,7 @@ package customapi
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,13 @@ import (
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options/leaderselector"
 )
+
+// decimalFloat marshals as a normal decimal number in JSON (no scientific notation).
+type decimalFloat float64
+
+func (f decimalFloat) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatFloat(float64(f), 'f', -1, 64)), nil
+}
 
 type statsJSON struct {
 	ContainerdEnabled bool                `json:"containerdEnabled"`
@@ -37,9 +45,9 @@ type torrentStatsJSON struct {
 }
 
 type storageEntryJSON struct {
-	Path    string  `json:"path"`
-	Label   string  `json:"label"`
-	UsageGB float64 `json:"usageGB"`
+	Path    string      `json:"path"`
+	Label   string      `json:"label"`
+	UsageGB decimalFloat `json:"usageGB"`
 }
 
 type cleanStatsJSON struct {
@@ -49,8 +57,8 @@ type cleanStatsJSON struct {
 }
 
 type transferEntryJSON struct {
-	Operation string  `json:"operation"`
-	SizeGB    float64 `json:"sizeGB"`
+	Operation string       `json:"operation"`
+	SizeGB    decimalFloat `json:"sizeGB"`
 }
 
 type upstreamEntryJSON struct {
@@ -81,7 +89,7 @@ func (h *CustomHandler) Stats(c *gin.Context) (interface{}, string, error) {
 	for _, e := range storageLabelOrder {
 		path := e.Path(op)
 		usage := sm.DiskUsage[e.Label]
-		storage = append(storage, storageEntryJSON{Path: path, Label: e.Label, UsageGB: usage})
+		storage = append(storage, storageEntryJSON{Path: path, Label: e.Label, UsageGB: decimalFloat(usage)})
 	}
 	cleanup := cleanStatsJSON{
 		Enabled:    op.CleanConfig.Cron != "",
@@ -90,7 +98,7 @@ func (h *CustomHandler) Stats(c *gin.Context) (interface{}, string, error) {
 	}
 	transfer := make([]transferEntryJSON, 0, len(sm.TransferSize))
 	for opName, gb := range sm.TransferSize {
-		transfer = append(transfer, transferEntryJSON{Operation: opName, SizeGB: gb})
+		transfer = append(transfer, transferEntryJSON{Operation: opName, SizeGB: decimalFloat(gb)})
 	}
 	sortTransferEntries(transfer)
 	js := statsJSON{
@@ -157,7 +165,7 @@ func formatStats(js statsJSON) string {
 	b.WriteString(fmt.Sprintf("HTTPProxy:     %s\n", orEmpty(js.HTTPProxy)))
 	b.WriteString("\nStorage (disk usage):\n")
 	for _, s := range js.Storage {
-		b.WriteString(fmt.Sprintf("  [%s] %s  =>  %.4g GB\n", s.Label, s.Path, s.UsageGB))
+		b.WriteString(fmt.Sprintf("  [%s] %s  =>  %.4g GB\n", s.Label, s.Path, float64(s.UsageGB)))
 	}
 	b.WriteString("\nCleanup:\n")
 	b.WriteString(fmt.Sprintf("  Enabled:    %s\n", formatBool(js.Cleanup.Enabled)))
@@ -165,7 +173,7 @@ func formatStats(js statsJSON) string {
 	b.WriteString(fmt.Sprintf("  RetainDays: %d\n", js.Cleanup.RetainDays))
 	b.WriteString("\nTransfer (cumulative):\n")
 	for _, t := range js.Transfer {
-		b.WriteString(fmt.Sprintf("  %s  =>  %.4g GB\n", t.Operation, t.SizeGB))
+		b.WriteString(fmt.Sprintf("  %s  =>  %.4g GB\n", t.Operation, float64(t.SizeGB)))
 	}
 	b.WriteString(fmt.Sprintf("\nErrorsTotal:  %d\n", js.ErrorsTotal))
 	b.WriteString("\nUpstreams:\n")

@@ -289,9 +289,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 		Repo:         repo,
 		Digest:       digest,
 	}
-	start := time.Now()
-	layerResp, master, err := requester.DownloadLayerFromMaster(ctx, layerReq, digest)
-	p.recorderGetBlobFromMaster(ctx, start, master, repo, digest, layerResp, err)
+	layerResp, master, err := p.recorderWrapGetBlobFromMaster(ctx, layerReq, digest)
 	if err != nil {
 		return errors.Wrapf(err, "download layer from master failed, master=%s", master)
 	}
@@ -303,6 +301,7 @@ func (p *upstreamProxy) handleGetBlob(ctx context.Context, req *http.Request, rw
 	logger.InfoContextf(ctx, "get layer-info from master(%s) success, located: %s, "+
 		"filePath: %s, size: %s, torrent: %s", master, layerResp.Located, layerResp.FilePath,
 		formatutils.FormatSize(layerResp.FileSize), haveTorrent)
+	start := time.Now()
 	// Should download layer from local again, maybe already have it on local
 	// Because when we download the layer from the master, the master may assign the task of downloading the
 	// layer to us. When we get the layer information, the layer may have been downloaded to the current node.
@@ -378,29 +377,23 @@ func (p *upstreamProxy) downloadLayerFromLocal(ctx context.Context, digest strin
 
 func (p *upstreamProxy) handleLayerDownload(ctx context.Context, resp *apitypes.DownloadLayerResponse,
 	repo, digest string) error {
-	start := time.Now()
 	// download layer from target directly with tcp
 	if resp.TorrentBase64 == "" {
-		err := p.downloadByTCP(ctx, resp.Located, resp.FilePath, digest)
-		p.recorderDownloadBlobByTCP(ctx, start, repo, digest, resp, err)
+		err := p.recorderWrapDownloadBlobByTCP(ctx, resp, repo, digest)
 		if err != nil {
 			return errors.Wrapf(err, "download by tcp failed")
 		}
 		return nil
 	}
 
-	err := p.torrentHandler.DownloadTorrent(ctx, digest, resp.TorrentBase64, resp.FilePath)
-	p.recorderDownloadBlobByTorrent(ctx, start, repo, digest, resp, err)
-	if err == nil {
+	if err := p.recorderWrapDownloadBlobByTorrent(ctx, resp, repo, digest); err == nil {
 		return nil
 	} else {
 		logger.WarnContextf(ctx, "downlaod layer with torrent failed and will download-by-tcp: %s",
 			err.Error())
 	}
 
-	err = p.downloadByTCP(ctx, resp.Located, resp.FilePath, digest)
-	p.recorderDownloadBlobByTCP(ctx, start, repo, digest, resp, err)
-	if err != nil {
+	if err := p.recorderWrapDownloadBlobByTCP(ctx, resp, repo, digest); err != nil {
 		return errors.Wrapf(err, "download by tcp failed")
 	}
 	return nil

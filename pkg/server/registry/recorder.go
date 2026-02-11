@@ -13,6 +13,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/recorder"
 	"github.com/penglongli/accelerboat/pkg/server/customapi/apitypes"
+	"github.com/penglongli/accelerboat/pkg/server/customapi/requester"
 )
 
 func (p *upstreamProxy) recorderReverseProxy(ctx context.Context, req *http.Request) {
@@ -83,8 +84,9 @@ func (p *upstreamProxy) recorderHeadManifest(ctx context.Context, start time.Tim
 	metrics.RegistryRequestDurationSeconds.WithLabelValues(p.originalHost, string(recorder.EventTypeHeadManifest)).
 		Observe(duration.Seconds())
 	details := map[string]interface{}{
-		"registry": p.originalHost, "repo": repo, "tag": tag, "duration_ms": duration.Milliseconds(),
-		"master": master,
+		"registry": p.originalHost, "repo": repo, "tag": tag,
+		"master":      master,
+		"duration_ms": duration.Milliseconds(),
 	}
 	if err != nil {
 		recorder.Global.Record(ctx, recorder.Event{
@@ -113,8 +115,9 @@ func (p *upstreamProxy) recorderGetManifest(ctx context.Context, start time.Time
 	metrics.RegistryRequestDurationSeconds.WithLabelValues(p.originalHost, string(recorder.EventTypeGetManifest)).
 		Observe(duration.Seconds())
 	details := map[string]interface{}{
-		"registry": p.originalHost, "repo": repo, "tag": tag, "duration_ms": duration.Milliseconds(),
-		"master": master,
+		"registry": p.originalHost, "repo": repo, "tag": tag,
+		"duration_ms": duration.Milliseconds(),
+		"master":      master,
 	}
 	if err != nil {
 		recorder.Global.Record(ctx, recorder.Event{
@@ -141,8 +144,9 @@ func (p *upstreamProxy) recorderServeBlobFromLocal(ctx context.Context, start ti
 	size int64, err error) {
 	duration := time.Since(start)
 	details := map[string]interface{}{
-		"registry": p.originalHost, "repo": repo, "digest": digest, "duration_ms": duration.Milliseconds(),
-		"size": size,
+		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"duration_ms": duration.Milliseconds(),
+		"size":        size,
 	}
 	if err != nil {
 		recorder.Global.Record(ctx, recorder.Event{
@@ -166,11 +170,23 @@ func (p *upstreamProxy) recorderServeBlobFromLocal(ctx context.Context, start ti
 	}
 }
 
-func (p *upstreamProxy) recorderGetBlobFromMaster(ctx context.Context, start time.Time, master, repo, digest string,
-	layerResp *apitypes.DownloadLayerResponse, err error) {
+func (p *upstreamProxy) recorderWrapGetBlobFromMaster(ctx context.Context, req *apitypes.DownloadLayerRequest,
+	digest string) (*apitypes.DownloadLayerResponse, string, error) {
+	recorder.Global.Record(ctx, recorder.Event{
+		Type:        recorder.EventTypeGetBlobFromMaster,
+		EventStatus: recorder.Normal,
+		Details: map[string]interface{}{
+			"registry": p.originalHost, "repo": req.Repo, "digest": digest,
+		},
+		Message: fmt.Sprintf("Get blob from master starting"),
+	})
+
+	start := time.Now()
+	layerResp, master, err := requester.DownloadLayerFromMaster(ctx, req, digest)
+
 	duration := time.Since(start)
 	details := map[string]interface{}{
-		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"registry": p.originalHost, "repo": req.Repo, "digest": digest,
 		"duration_ms": duration.Milliseconds(), "master": master,
 	}
 	if err != nil {
@@ -183,7 +199,9 @@ func (p *upstreamProxy) recorderGetBlobFromMaster(ctx context.Context, start tim
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost,
 			string(recorder.EventTypeGetBlobFromMaster), "error").Inc()
 	} else {
-		details["data"] = layerResp.ToJSONString()
+		details["target"] = layerResp.Located
+		details["file"] = layerResp.FilePath
+		details["size"] = layerResp.FileSize
 		recorder.Global.Record(ctx, recorder.Event{
 			Type:        recorder.EventTypeGetBlobFromMaster,
 			EventStatus: recorder.Normal,
@@ -193,15 +211,29 @@ func (p *upstreamProxy) recorderGetBlobFromMaster(ctx context.Context, start tim
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost,
 			string(recorder.EventTypeGetBlobFromMaster), "success").Inc()
 	}
+	return layerResp, master, err
 }
 
-func (p *upstreamProxy) recorderDownloadBlobByTCP(ctx context.Context, start time.Time, repo, digest string,
-	layerResp *apitypes.DownloadLayerResponse, err error) {
+func (p *upstreamProxy) recorderWrapDownloadBlobByTCP(ctx context.Context, resp *apitypes.DownloadLayerResponse,
+	repo, digest string) error {
+	recorder.Global.Record(ctx, recorder.Event{
+		Type:        recorder.EventTypeDownloadBlobByTCP,
+		EventStatus: recorder.Normal,
+		Details: map[string]interface{}{
+			"registry": p.originalHost, "repo": repo, "digest": digest,
+			"target": resp.Located, "file": resp.FilePath, "size": resp.FileSize,
+		},
+		Message: fmt.Sprintf("Download blob by tcp starting"),
+	})
+
+	start := time.Now()
+	err := p.downloadByTCP(ctx, resp.Located, resp.FilePath, digest)
+
 	duration := time.Since(start)
 	details := map[string]interface{}{
 		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"target": resp.Located, "file": resp.FilePath, "size": resp.FileSize,
 		"duration_ms": duration.Milliseconds(),
-		"data":        layerResp.ToJSONString(),
 	}
 	if err != nil {
 		recorder.Global.Record(ctx, recorder.Event{
@@ -221,17 +253,31 @@ func (p *upstreamProxy) recorderDownloadBlobByTCP(ctx context.Context, start tim
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTCP),
 			"success").Inc()
-		metrics.TransferSize.WithLabelValues("download_by_tcp").Add(float64(layerResp.FileSize) / 1e9)
+		metrics.TransferSize.WithLabelValues("download_by_tcp").Add(float64(resp.FileSize) / 1e9)
 	}
+	return err
 }
 
-func (p *upstreamProxy) recorderDownloadBlobByTorrent(ctx context.Context, start time.Time, repo, digest string,
-	layerResp *apitypes.DownloadLayerResponse, err error) {
+func (p *upstreamProxy) recorderWrapDownloadBlobByTorrent(ctx context.Context, resp *apitypes.DownloadLayerResponse,
+	repo, digest string) error {
+	recorder.Global.Record(ctx, recorder.Event{
+		Type:        recorder.EventTypeDownloadBlobByTorrent,
+		EventStatus: recorder.Normal,
+		Details: map[string]interface{}{
+			"registry": p.originalHost, "repo": repo, "digest": digest,
+			"target": resp.Located, "file": resp.FilePath, "size": resp.FileSize,
+		},
+		Message: fmt.Sprintf("Download blob by torrent starting"),
+	})
+
+	start := time.Now()
+	err := p.torrentHandler.DownloadTorrent(ctx, digest, resp.TorrentBase64, resp.FilePath)
+
 	duration := time.Since(start)
 	details := map[string]interface{}{
 		"registry": p.originalHost, "repo": repo, "digest": digest,
+		"target": resp.Located, "file": resp.FilePath, "size": resp.FileSize,
 		"duration_ms": duration.Milliseconds(),
-		"data":        layerResp.ToJSONString(),
 	}
 	if err != nil {
 		recorder.Global.Record(ctx, recorder.Event{
@@ -251,6 +297,7 @@ func (p *upstreamProxy) recorderDownloadBlobByTorrent(ctx context.Context, start
 		})
 		metrics.RegistryRequestsTotal.WithLabelValues(p.originalHost, string(recorder.EventTypeDownloadBlobByTorrent),
 			"success").Inc()
-		metrics.TransferSize.WithLabelValues("download_by_torrent").Add(float64(layerResp.FileSize) / 1e9)
+		metrics.TransferSize.WithLabelValues("download_by_torrent").Add(float64(resp.FileSize) / 1e9)
 	}
+	return err
 }

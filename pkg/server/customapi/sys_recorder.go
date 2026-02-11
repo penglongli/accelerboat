@@ -16,6 +16,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 
 	"github.com/penglongli/accelerboat/pkg/recorder"
+	"github.com/penglongli/accelerboat/pkg/utils/formatutils"
 )
 
 const (
@@ -181,21 +182,62 @@ func wrapMessage(msg string, width int) string {
 	return b.String()
 }
 
-func getRepoOrExtra(e *recorder.Event) string {
-	repo := detailStr(e.Details, "repo")
-	if repo != "" {
-		return repo
-	}
-	switch e.Type {
-	case recorder.EventTypeReverseProxy:
-		return fmt.Sprintf("%s,%s", e.Details["method"], e.Details["path"])
-	case recorder.EventTypeServiceToken:
-		if s, ok := e.Details["scope"].(string); ok {
-			return s
-		}
+func convertString(v interface{}) string {
+	if v == nil {
 		return ""
 	}
-	return ""
+	return v.(string)
+}
+
+func convertInt64(v interface{}) int64 {
+	if v == nil {
+		return 0
+	}
+	switch v.(type) {
+	case int64:
+		return v.(int64)
+	case float64:
+		return int64(v.(float64))
+	}
+	return 0
+}
+
+func buildExtra(e *recorder.Event) string {
+	details := make([]string, 0)
+	switch e.Type {
+	case recorder.EventTypeReverseProxy:
+		details = append(details, "method="+convertString(e.Details["method"]))
+		details = append(details, "path="+convertString(e.Details["path"]))
+	case recorder.EventTypeServiceToken:
+		details = append(details, "master="+convertString(e.Details["master"]))
+		details = append(details, "scope="+convertString(e.Details["scope"]))
+	case recorder.EventTypeHeadManifest:
+		details = append(details, "master="+convertString(e.Details["master"]))
+		details = append(details, "tag="+convertString(e.Details["tag"]))
+	case recorder.EventTypeGetManifest:
+		details = append(details, "master="+convertString(e.Details["master"]))
+		details = append(details, "tag="+convertString(e.Details["tag"]))
+	case recorder.EventServeBlobFromLocal:
+		details = append(details, "digest="+convertString(e.Details["digest"]))
+		details = append(details, "size="+formatutils.FormatSize(convertInt64(e.Details["size"])))
+	case recorder.EventTypeGetBlobFromMaster:
+		details = append(details, "digest="+convertString(e.Details["digest"]))
+		if target := e.Details["target"]; target != nil {
+			details = append(details, "target="+convertString(target))
+		}
+		if file := e.Details["file"]; file != nil {
+			details = append(details, "file="+convertString(file))
+		}
+		if size := e.Details["size"]; size != nil {
+			details = append(details, "size="+formatutils.FormatSize(convertInt64(size)))
+		}
+	case recorder.EventTypeDownloadBlobByTCP, recorder.EventTypeDownloadBlobByTorrent:
+		details = append(details, "digest="+convertString(e.Details["digest"]))
+		details = append(details, "target="+convertString(e.Details["target"]))
+		details = append(details, "file="+convertString(e.Details["file"]))
+		details = append(details, "size="+formatutils.FormatSize(convertInt64(e.Details["size"])))
+	}
+	return strings.Join(details, "\n")
 }
 
 // filterRecorderEvents filters events by query params: registry (exact match) and search (substring match on repoOrExtra).
@@ -208,7 +250,7 @@ func filterRecorderEvents(events []recorder.Event, registry, search string) []re
 		if registry != "" && detailStr(e.Details, "registry") != registry {
 			continue
 		}
-		if search != "" && !strings.Contains(getRepoOrExtra(&e), search) {
+		if search != "" && !strings.Contains(buildExtra(&e), search) {
 			continue
 		}
 		out = append(out, e)
@@ -221,7 +263,7 @@ func eventMatchesFilter(e *recorder.Event, registry, search string) bool {
 	if registry != "" && detailStr(e.Details, "registry") != registry {
 		return false
 	}
-	if search != "" && !strings.Contains(getRepoOrExtra(e), search) {
+	if search != "" && !strings.Contains(buildExtra(e), search) {
 		return false
 	}
 	return true
@@ -230,17 +272,17 @@ func eventMatchesFilter(e *recorder.Event, registry, search string) bool {
 func formatRecorderEventsTable(events []recorder.Event) string {
 	var b strings.Builder
 	tbl := tablewriter.NewWriter(&b)
-	tbl.SetHeader([]string{"Timestamp", "Type", "Status", "Registry", "Repo/Extra", "Duration", "Message"})
+	tbl.SetHeader([]string{"Timestamp", "Type", "Status", "Registry", "Repo", "Duration", "Message", "Extra"})
 	tbl.SetAlignment(tablewriter.ALIGN_LEFT)
 	tbl.SetBorder(true)
 	tbl.SetColWidth(recorderMessageWrap)
 	for _, e := range events {
 		registry := detailStr(e.Details, "registry")
-		repoOrExtra := getRepoOrExtra(&e)
-		if repoOrExtra == "" {
-			repoOrExtra = "-"
+		repo := detailStr(e.Details, "repo")
+		if repo == "" {
+			repo = "-"
 		} else {
-			repoOrExtra = wrapMessage(repoOrExtra, recorderRepoOrExtraWrap)
+			repo = wrapMessage(repo, recorderRepoOrExtraWrap)
 		}
 		msg := e.Message
 		if msg == "" {
@@ -248,10 +290,11 @@ func formatRecorderEventsTable(events []recorder.Event) string {
 		} else {
 			msg = wrapMessage(msg, recorderMessageWrap)
 		}
+		extra := buildExtra(&e)
 		dur := detailDurationSec(e.Details)
 		ts := formatRelativeTime(e.Timestamp)
 		typeStr := formatEventType(string(e.Type))
-		tbl.Append([]string{ts, typeStr, string(e.EventStatus), registry, repoOrExtra, dur, msg})
+		tbl.Append([]string{ts, typeStr, string(e.EventStatus), registry, repo, dur, msg, extra})
 	}
 	tbl.Render()
 	return b.String()
@@ -341,11 +384,11 @@ func (h *CustomHandler) recorderStream(c *gin.Context) {
 				_ = json.NewEncoder(w).Encode(eventToMap(e))
 			} else {
 				registry := detailStr(e.Details, "registry")
-				repoOrExtra := getRepoOrExtra(&e)
-				if repoOrExtra == "" {
-					repoOrExtra = "-"
+				repo := detailStr(e.Details, "repo")
+				if repo == "" {
+					repo = "-"
 				} else {
-					repoOrExtra = wrapMessage(repoOrExtra, recorderRepoOrExtraWrap)
+					repo = wrapMessage(repo, recorderRepoOrExtraWrap)
 				}
 				msg := e.Message
 				if msg == "" {
@@ -353,10 +396,11 @@ func (h *CustomHandler) recorderStream(c *gin.Context) {
 				} else {
 					msg = wrapMessage(msg, recorderMessageWrap)
 				}
+				extra := buildExtra(&e)
 				dur := detailDurationSec(e.Details)
 				ts := formatRelativeTime(e.Timestamp)
 				typeStr := formatEventType(string(e.Type))
-				row := strings.Join([]string{ts, typeStr, string(e.EventStatus), registry, repoOrExtra, dur, msg}, "\t")
+				row := strings.Join([]string{ts, typeStr, string(e.EventStatus), registry, repo, dur, msg, extra}, "\t")
 				_, _ = w.Write([]byte(row + "\n"))
 			}
 			if flusher, ok := w.(http.Flusher); ok {
