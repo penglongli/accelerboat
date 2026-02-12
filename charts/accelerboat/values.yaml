@@ -36,8 +36,7 @@ resources: {}
 env:
   httpPort: 2080
   httpsPort: 2081
-  metricPort: 2082
-  torrentPort: 2083
+  torrentPort: 2082
   logDir: "/data/accelerboat/logs"
   logMaxSize: 200
   logMaxBackups: 10
@@ -73,7 +72,7 @@ env:
   torrentDownloadLimit: 0
   # Torrent tracker address (do not modify)
   torrentAnnounce: udp://{{ .Values.tracker.name }}.{{ .Release.Namespace }}.svc.cluster.local:6969
-  # Redis address
+  # Redis address (when redis.enabled is false, set this to your external Redis address)
   redisAddress: accelerboat-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379
   redisPassword: ""
   # HTTP_PROXY for image pull egress, e.g. http://x.x.x.x:2088 (leave empty if not needed)
@@ -194,7 +193,9 @@ tracker:
   affinity: {}
 
 
+# Set to true to deploy the built-in Redis sub-chart; false to use an external Redis (configure env.redisAddress).
 redis:
+  enabled: true
   global:
     security:
       allowInsecureImages: true
@@ -234,6 +235,7 @@ redis:
       #   cpu: 100m
       #   memory: 128Mi
 
+# Set to true to deploy the built-in Squid proxy sub-chart for image-pull egress; false to use no proxy or external proxy (configure env.httpProxy).
 squid:
   enabled: false
   fullnameOverride: "accelerboat-squid"

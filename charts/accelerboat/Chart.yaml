@@ -28,6 +28,7 @@ dependencies:
   - name: redis
     repository: file://charts/redis
     version: 21.2.13
+    condition: redis.enabled
   - name: squid
     repository: file://charts/squid
     version: 0.1.0

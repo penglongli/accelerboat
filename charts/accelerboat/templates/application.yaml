@@ -22,10 +22,11 @@ spec:
       {{- include "accelerboat.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- with .Values.podAnnotations }}
       annotations:
+        checksum/config: {{ include "accelerboat.configmapData" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- end }}
       labels:
         {{- include "accelerboat.labels" . | nindent 8 }}
        {{- with .Values.podLabels }}
@@ -61,8 +62,6 @@ spec:
               containerPort: {{ .Values.env.httpPort }}
             - name: https
               containerPort: {{ .Values.env.httpsPort }}
-            - name: metric
-              containerPort: {{ .Values.env.metricPort }}
             - name: torrent
               containerPort: {{ .Values.env.torrentPort }}
           {{- with .Values.livenessProbe }}

@@ -35,6 +35,7 @@ import (
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/store"
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 // ScanHandler defines the handler for scan oci
@@ -121,8 +122,8 @@ func (s *ScanHandler) GenerateLayer(ctx context.Context, ociType string, layer s
 
 // handleContainerdCopy handle containerd copy
 func (s *ScanHandler) handleContainerdCopy(ctx context.Context, layer string) (string, error) {
-	layer = "sha256:" + layer
-	layerDigest := digest.Digest(layer)
+	fullDigest := "sha256:" + strings.TrimPrefix(layer, "sha256:")
+	layerDigest := digest.Digest(fullDigest)
 	nsCtx := namespaces.WithNamespace(ctx, "k8s.io")
 	if _, err := s.cc.Client.ContentStore().Info(nsCtx, layerDigest); err != nil {
 		if errdefs.IsNotFound(err) {
@@ -131,15 +132,17 @@ func (s *ScanHandler) handleContainerdCopy(ctx context.Context, layer string) (s
 		return "", errors.Wrapf(err, "containerd get layer info failed")
 	}
 
-	ra, err := s.cc.Client.ContentStore().ReaderAt(nsCtx, ocispec.Descriptor{Digest: digest.Digest(layer)})
+	ra, err := s.cc.Client.ContentStore().ReaderAt(nsCtx, ocispec.Descriptor{Digest: digest.Digest(fullDigest)})
 	if err != nil {
 		return "", errors.Wrapf(err, "containerd read digest failed")
 	}
 	defer ra.Close()
-	logger.InfoContextf(ctx, "layer-containerd read layer '%s' sucess", layer)
+	logger.InfoContextf(ctx, "layer-containerd read layer '%s' sucess", fullDigest)
 
+	// Layer file name without "sha256:" prefix (same as LayerFileName in utils).
+	layerFileName := utils.LayerFileName(fullDigest)
 	reader := content.NewReader(ra)
-	targetFile := path.Join(s.op.StorageConfig.DownloadPath, layer+"tar.gzip")
+	targetFile := path.Join(s.op.StorageConfig.DownloadPath, layerFileName)
 	_ = os.RemoveAll(targetFile)
 	dstFile, err := os.Create(targetFile)
 	if err != nil {
@@ -149,7 +152,7 @@ func (s *ScanHandler) handleContainerdCopy(ctx context.Context, layer string) (s
 	if _, err = io.Copy(dstFile, reader); err != nil {
 		return "", errors.Wrapf(err, "containerd copy layer '%s' failed", targetFile)
 	}
-	result := path.Join(s.op.StorageConfig.OCIPath, layer+"tar.gzip")
+	result := path.Join(s.op.StorageConfig.OCIPath, layerFileName)
 	if err = os.Rename(targetFile, result); err != nil {
 		return "", errors.Wrapf(err, "rename '%s' to '%s' failed", targetFile, result)
 	}
@@ -200,6 +203,7 @@ func (s *ScanHandler) ListManagedImages(ctx context.Context, ociPath string) ([]
 				return nil
 			}
 			name := strings.TrimSuffix(de.Name(), ".tar.gzip")
+			// File names are without "sha256:" prefix; support legacy names with prefix.
 			d := "sha256:" + strings.TrimPrefix(name, "sha256:")
 			ociPathLayers[d] = entryPath
 			return nil
@@ -247,6 +251,7 @@ func ListOCIPathLayers(ociPath string) ([]OCIPathLayerInfo, error) {
 			return nil
 		}
 		name := strings.TrimSuffix(de.Name(), ".tar.gzip")
+		// File names are without "sha256:" prefix; support legacy names with prefix.
 		d := "sha256:" + strings.TrimPrefix(name, "sha256:")
 		out = append(out, OCIPathLayerInfo{Digest: d, Size: info.Size(), Path: entryPath})
 		return nil

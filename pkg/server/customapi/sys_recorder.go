@@ -250,7 +250,8 @@ func filterRecorderEvents(events []recorder.Event, registry, search string) []re
 		if registry != "" && detailStr(e.Details, "registry") != registry {
 			continue
 		}
-		if search != "" && !strings.Contains(buildExtra(&e), search) {
+		if search != "" && !strings.Contains(buildExtra(&e), search) &&
+			!strings.Contains(detailStr(e.Details, "repo"), search) {
 			continue
 		}
 		out = append(out, e)
@@ -263,7 +264,8 @@ func eventMatchesFilter(e *recorder.Event, registry, search string) bool {
 	if registry != "" && detailStr(e.Details, "registry") != registry {
 		return false
 	}
-	if search != "" && !strings.Contains(buildExtra(e), search) {
+	if search != "" && !strings.Contains(buildExtra(e), search) &&
+		!strings.Contains(detailStr(e.Details, "repo"), search) {
 		return false
 	}
 	return true

@@ -76,14 +76,7 @@ func buildConfigSnapshot(op *options.AccelerBoatOption) configSnapshot {
 		RedisAddress:     op.RedisAddress,
 		RedisPassword:    op.RedisPassword,
 		ExternalConfig: externalConfigSnapshot{
-			HTTPProxy: ext.HTTPProxy,
-			DockerHubRegistry: registryMappingSnapshot{
-				Enable:       ext.DockerHubRegistry.Enable,
-				ProxyHost:    ext.DockerHubRegistry.ProxyHost,
-				OriginalHost: ext.DockerHubRegistry.OriginalHost,
-				Username:     ext.DockerHubRegistry.Username,
-				Password:     ext.DockerHubRegistry.Password,
-			},
+			HTTPProxy:        ext.HTTPProxy,
 			RegistryMappings: make([]registryMappingSnapshot, 0, len(ext.RegistryMappings)),
 		},
 	}

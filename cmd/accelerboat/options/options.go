@@ -46,10 +46,6 @@ func (o *AccelerBoatOption) HTTPProxyTransport() http.RoundTripper {
 
 // FilterRegistryMapping filter registry mapping
 func (o *AccelerBoatOption) FilterRegistryMapping(proxyHost string, proxyType ProxyType) *RegistryMapping {
-	// When ProxyHost is empty, default to docker.io
-	if proxyHost == "" {
-		return &o.ExternalConfig.DockerHubRegistry
-	}
 	for _, m := range o.ExternalConfig.RegistryMappings {
 		switch proxyType {
 		case RegistryMirror:
@@ -67,14 +63,18 @@ func (o *AccelerBoatOption) FilterRegistryMapping(proxyHost string, proxyType Pr
 			}
 		}
 	}
+	if proxyType == RegistryMirror {
+		return &RegistryMapping{
+			Enable:       true,
+			ProxyHost:    proxyHost,
+			OriginalHost: proxyHost,
+		}
+	}
 	return nil
 }
 
 // FilterRegistryMappingByOriginal filter registry mappings by original registry
 func (o *AccelerBoatOption) FilterRegistryMappingByOriginal(originalHost string) *RegistryMapping {
-	if o.ExternalConfig.DockerHubRegistry.OriginalHost == originalHost {
-		return &o.ExternalConfig.DockerHubRegistry
-	}
 	for _, m := range o.ExternalConfig.RegistryMappings {
 		if originalHost == m.OriginalHost {
 			return m

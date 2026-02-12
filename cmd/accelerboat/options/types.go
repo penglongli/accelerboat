@@ -121,11 +121,10 @@ const LocalhostCert = "localhost"
 
 // ExternalConfig defines the external config
 type ExternalConfig struct {
-	HTTPProxy         string                   `json:"httpProxy"`
-	HTTPProxyUrl      *url.URL                 `json:"-"`
-	BuiltInCerts      map[string]*ProxyKeyCert `json:"builtInCerts"`
-	DockerHubRegistry RegistryMapping          `json:"dockerHubRegistry"`
-	RegistryMappings  []*RegistryMapping       `json:"registryMappings"`
+	HTTPProxy        string                   `json:"httpProxy"`
+	HTTPProxyUrl     *url.URL                 `json:"-"`
+	BuiltInCerts     map[string]*ProxyKeyCert `json:"builtInCerts"`
+	RegistryMappings []*RegistryMapping       `json:"registryMappings"`
 }
 
 type ServiceDiscovery struct {

@@ -15,10 +15,6 @@ spec:
       targetPort: https
       protocol: TCP
       name: https
-    - port: {{ .Values.env.metricPort }}
-      targetPort: metric
-      protocol: TCP
-      name: metric
     - port: {{ .Values.env.torrentPort }}
       targetPort: torrent
       protocol: TCP

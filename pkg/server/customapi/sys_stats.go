@@ -45,8 +45,8 @@ type torrentStatsJSON struct {
 }
 
 type storageEntryJSON struct {
-	Path    string      `json:"path"`
-	Label   string      `json:"label"`
+	Path    string       `json:"path"`
+	Label   string       `json:"label"`
 	UsageGB decimalFloat `json:"usageGB"`
 }
 
@@ -129,16 +129,6 @@ func sortTransferEntries(entries []transferEntryJSON) {
 
 func buildUpstreamsList(op *options.AccelerBoatOption) []upstreamEntryJSON {
 	list := make([]upstreamEntryJSON, 0, 1+len(op.ExternalConfig.RegistryMappings))
-	dh := op.ExternalConfig.DockerHubRegistry
-	proxyHost := dh.ProxyHost
-	if proxyHost == "" {
-		proxyHost = "docker.io"
-	}
-	list = append(list, upstreamEntryJSON{
-		ProxyHost:    proxyHost,
-		OriginalHost: dh.OriginalHost,
-		Enabled:      dh.Enable,
-	})
 	for _, m := range op.ExternalConfig.RegistryMappings {
 		list = append(list, upstreamEntryJSON{
 			ProxyHost:    m.ProxyHost,

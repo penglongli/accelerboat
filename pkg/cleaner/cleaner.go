@@ -234,17 +234,11 @@ func collectLayerFilesWithLRU(dirs []struct{ label, dir string }, digestLastUsed
 }
 
 // digestFromLayerFileName derives digest from a layer file base name.
-// For oci, files are "sha256:hex.tar.gzip"; for others they are "hex.tar.gzip" (no sha256:).
+// OCI layer files are "hex.tar.gzip" (no sha256: prefix); legacy or other dirs may use "sha256:hex.tar.gzip".
 func digestFromLayerFileName(base string, isOCI bool) string {
 	name := strings.TrimSuffix(base, ".tar.gzip")
 	if name == base {
 		return ""
 	}
-	if isOCI && strings.HasPrefix(name, "sha256:") {
-		return name
-	}
-	if isOCI {
-		return "sha256:" + name
-	}
-	return "sha256:" + name
+	return "sha256:" + strings.TrimPrefix(name, "sha256:")
 }

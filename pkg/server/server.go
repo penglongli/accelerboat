@@ -294,15 +294,27 @@ func (s *AccelerboatServer) ServeHTTP(rw http.ResponseWriter, req *http.Request)
 		s.httpError(ctx, rec, fmt.Sprintf("invalid host: %s", req.Host), http.StatusBadRequest)
 		return
 	}
-	proxyType := options.DomainProxy
 	proxyHost := hosts[0]
 	requestURI := req.RequestURI
-
-	upstreamProxy := registry.NewUpstreamProxy(proxyType, proxyHost, s.torrentHandler)
+	var upstreamProxy registry.UpstreamProxyInterface
+	switch proxyHost {
+	case LocalHost, LocalHostAddr:
+		queryNS := strings.TrimSpace(req.URL.Query().Get("ns"))
+		if queryNS == "" {
+			s.httpError(ctx, rec, fmt.Sprintf("mode 'RegistryMirror' request not have 'ns' query param"),
+				http.StatusBadRequest)
+			return
+		}
+		proxyHost = queryNS
+		upstreamProxy = registry.NewUpstreamProxy(options.RegistryMirror, proxyHost, s.torrentHandler)
+	default:
+		upstreamProxy = registry.NewUpstreamProxy(options.DomainProxy, proxyHost, s.torrentHandler)
+	}
 	if upstreamProxy == nil {
 		s.httpError(ctx, rec, fmt.Sprintf("no handler for proxy host '%s'", proxyHost), http.StatusBadRequest)
 		return
 	}
+
 	upstreamProxy.ServeHTTP(requestURI, rec, req)
 	metrics.HTTPRequestsTotal.WithLabelValues(proxyHost, method, "", strconv.Itoa(rec.Status())).Inc()
 	if !strings.Contains(req.URL.Path, "/blobs/") {
