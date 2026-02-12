@@ -23,6 +23,7 @@ const (
 	APIStats            = "/customapi/stats"
 	APIMetrics          = "/customapi/metrics"
 	APIConfig           = "/customapi/config"
+	APIOCIImages        = "/customapi/oci-images"
 )
 
 var (
@@ -32,6 +33,7 @@ var (
 		APIStats:         {},
 		APIMetrics:       {},
 		APIConfig:        {},
+		APIOCIImages:    {},
 		"/metrics":       {},
 	}
 )

@@ -59,7 +59,8 @@ type StorageConfig struct {
 	// DownloadPath storage directory for Layers downloaded from the source registry.
 	// The integrity of the files under it cannot be guaranteed.
 	DownloadPath string `json:"downloadPath"`
-	// TorrentPath Directory for Torrent downloads, the integrity of the files is not guaranteed
+	// TorrentPath Directory for Torrent downloads, and the files below
+	// it are guaranteed to be complete
 	TorrentPath string `json:"torrentPath"`
 	// TransferPath layer file is stored for regular downloads, and the files below
 	// it are guaranteed to be complete

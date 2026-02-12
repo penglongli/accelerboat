@@ -81,7 +81,7 @@ func (h *CustomHandler) saveAuthToken(authKey string, authToken *apitypes.Regist
 	if authToken.ExpiresIn-60 > 180 {
 		authToken.ExpiresIn = authToken.ExpiresIn - 60
 	}
-	logger.Infof("cache authkey %s set value %s", authKey, authToken.Token)
+	logger.Infof("cache authkey %s set value success", authKey)
 }
 
 // GetServiceToken obtains a registry auth token from upstream and returns it (cached by originalHost, service, scope).

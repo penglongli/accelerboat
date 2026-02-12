@@ -165,22 +165,27 @@ func (o *AccelerBoatOption) checkCleanConfig() error {
 		logger.Infof("clean-config not set, no-need auto clean")
 		return nil
 	}
-	parser := cron.NewParser(
-		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
-	)
-	schedule, err := parser.Parse(o.CleanConfig.Cron)
-	if err != nil {
-		return errors.Wrapf(err, "parse cron expression '%s' failed", o.CleanConfig.Cron)
-	}
 	if o.CleanConfig.Threshold < 10 {
 		o.CleanConfig.Threshold = 10
 	}
 	if o.CleanConfig.RetainDays < 0 {
 		o.CleanConfig.RetainDays = 0
 	}
+	if err := ParseCron(o.CleanConfig.Cron); err != nil {
+		return err
+	}
+	return nil
+}
 
-	logger.Infof("clean-config is set '%s', retain: %d day, size: %d GB print the next ten execution times:",
-		o.CleanConfig.Cron, o.CleanConfig.RetainDays, o.CleanConfig.Threshold)
+func ParseCron(expr string) error {
+	parser := cron.NewParser(
+		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
+	)
+	schedule, err := parser.Parse(expr)
+	if err != nil {
+		return errors.Wrapf(err, "parse cron expression '%s' failed", expr)
+	}
+	logger.Infof("parse clean cron '%s' success, print next execution times:", expr)
 	currentTime := time.Now()
 	for i := 0; i < 10; i++ {
 		currentTime = schedule.Next(currentTime)

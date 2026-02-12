@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/server/common"
+	"github.com/penglongli/accelerboat/pkg/utils"
 )
 
 const (
@@ -93,9 +95,9 @@ type Recorder struct {
 	subsMu sync.RWMutex
 	subs   []chan Event // buffered channels for follow mode; each has cap 256
 
-	eventFileMu        sync.RWMutex
-	eventFilePath      string // set when InitEventFile is called; used by List() to read from file
-	eventFileMaxBackups int   // number of rotated backups to consider when reading
+	eventFileMu         sync.RWMutex
+	eventFilePath       string // set when InitEventFile is called; used by List() to read from file
+	eventFileMaxBackups int    // number of rotated backups to consider when reading
 }
 
 // Global returns the global recorder instance (singleton).
@@ -250,7 +252,7 @@ func (r *Recorder) Record(ctx context.Context, ev Event) {
 
 // listFromFile reads events from the event file(s) in chronological order and returns the last limit events.
 // File order: eventFile.MaxBackups (oldest), ..., eventFile.1, eventFile (newest). Skips unreadable or invalid lines.
-func (r *Recorder) listFromFile(eventFile string, maxBackups, limit int) []Event {
+func (r *Recorder) listFromFile(eventFile string, maxBackups, limit int, query []string, startTime *time.Time) []Event {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -258,9 +260,9 @@ func (r *Recorder) listFromFile(eventFile string, maxBackups, limit int) []Event
 	// Build list of paths from oldest to newest: eventFile.5, eventFile.4, ..., eventFile.1, eventFile
 	for i := maxBackups; i >= 1; i-- {
 		path := eventFile + "." + strconv.Itoa(i)
-		r.readEventsFromPath(path, &events, limit)
+		r.readEventsFromPath(path, &events, limit, query, startTime)
 	}
-	r.readEventsFromPath(eventFile, &events, limit)
+	r.readEventsFromPath(eventFile, &events, limit, query, startTime)
 	if len(events) == 0 {
 		return nil
 	}
@@ -272,7 +274,7 @@ func (r *Recorder) listFromFile(eventFile string, maxBackups, limit int) []Event
 }
 
 // readEventsFromPath appends events from path (JSONL) into events, keeping at most limit in the sliding window.
-func (r *Recorder) readEventsFromPath(path string, events *[]Event, limit int) {
+func (r *Recorder) readEventsFromPath(path string, events *[]Event, limit int, query []string, startTime *time.Time) {
 	f, err := os.Open(path)
 	if err != nil {
 		return
@@ -287,9 +289,27 @@ func (r *Recorder) readEventsFromPath(path string, events *[]Event, limit int) {
 		if len(line) == 0 {
 			continue
 		}
+		if len(query) != 0 {
+			matched := false
+			str := utils.BytesToString(line)
+			for i := range query {
+				if strings.Contains(str, query[i]) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
 		var ev Event
 		if err := json.Unmarshal(line, &ev); err != nil {
 			continue
+		}
+		if startTime != nil {
+			if ev.Timestamp.Before(*startTime) {
+				continue
+			}
 		}
 		*events = append(*events, ev)
 		if len(*events) > limit {
@@ -302,7 +322,7 @@ func (r *Recorder) readEventsFromPath(path string, events *[]Event, limit int) {
 // If limit <= 0, default 100 is used.
 // When event file is enabled (InitEventFile was called), List reads from the file(s) so data survives restarts.
 // Otherwise List reads from the in-memory ring buffer.
-func (r *Recorder) List(limit int) []Event {
+func (r *Recorder) List(limit int, query []string, startTime *time.Time) []Event {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -312,7 +332,7 @@ func (r *Recorder) List(limit int) []Event {
 	r.eventFileMu.RUnlock()
 
 	if eventFile != "" {
-		return r.listFromFile(eventFile, maxBackups, limit)
+		return r.listFromFile(eventFile, maxBackups, limit, query, startTime)
 	}
 
 	// No event file configured: read from in-memory ring buffer

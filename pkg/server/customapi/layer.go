@@ -162,6 +162,7 @@ func (h *CustomHandler) checkLayerHasCached(ctx context.Context, req *apitypes.D
 				ocil.Located, ocil.Data, err.Error())
 			continue
 		}
+		logger.InfoContextf(ctx, "check oci-layer '%s, %s' success", ocil.Located, ocil.Data)
 		h.ociLayerRefer[req.Digest][ocil.Located]++
 		return &apitypes.DownloadLayerResponse{
 			TorrentBase64: resp.TorrentBase64,

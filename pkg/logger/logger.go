@@ -29,7 +29,7 @@ var (
 
 func InitLogger(op *Option) {
 	if op.Level <= 0 {
-		maxLevel = 1
+		maxLevel = 2
 	} else {
 		maxLevel = op.Level
 	}

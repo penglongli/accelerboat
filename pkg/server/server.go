@@ -22,6 +22,7 @@ import (
 
 	"github.com/penglongli/accelerboat/cmd/accelerboat/options"
 	"github.com/penglongli/accelerboat/pkg/bittorrent"
+	"github.com/penglongli/accelerboat/pkg/cleaner"
 	"github.com/penglongli/accelerboat/pkg/logger"
 	"github.com/penglongli/accelerboat/pkg/metrics"
 	"github.com/penglongli/accelerboat/pkg/ociscan"
@@ -108,6 +109,10 @@ func (s *AccelerboatServer) Run() error {
 	errCh := make(chan error, len(fs))
 	for i := range fs {
 		go fs[i](errCh)
+	}
+	imageCleaner := cleaner.NewImageCleaner(s.op)
+	if err := imageCleaner.Init(); err != nil {
+		return errors.Wrapf(err, "failed to init image cleaner")
 	}
 	go func() {
 		<-s.globalCtx.Done()

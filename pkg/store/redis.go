@@ -120,7 +120,7 @@ func (r *RedisStore) SaveOCILayer(ctx context.Context, ociType LayerType, layer,
 		return errors.Wrapf(err, "redis set key '%s' with vaule '%s' failed", key, filePath)
 	}
 	r.localCache.Store(layer, struct{}{})
-	logger.InfoContextf(ctx, "cache save oci layer '%s = %s' success", key, filePath)
+	logger.V(3).InfoContextf(ctx, "cache save oci layer '%s = %s' success", key, filePath)
 	return nil
 }
 

@@ -80,6 +80,7 @@ func NewRootCmd() *cobra.Command {
 	cmd.AddCommand(NewEventsCmd())
 	cmd.AddCommand(NewImagePreloadCmd())
 	cmd.AddCommand(NewImagePreloadCleanCmd())
+	cmd.AddCommand(NewImagesShowCmd())
 
 	return cmd
 }

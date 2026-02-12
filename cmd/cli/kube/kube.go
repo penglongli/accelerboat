@@ -228,6 +228,35 @@ func (c *Client) GetPod(ctx context.Context, name string) (*corev1.Pod, error) {
 	return nil, fmt.Errorf("pod %q not found in namespace %s (label %s)", name, c.namespace, AccelerboatAppLabel)
 }
 
+// GetPodByNode returns the accelerboat pod running on the given node (exact or unique prefix match on node name).
+func (c *Client) GetPodByNode(ctx context.Context, nodeName string) (*corev1.Pod, error) {
+	if nodeName == "" {
+		return nil, fmt.Errorf("node name is required")
+	}
+	list, err := c.ListPods(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var match *corev1.Pod
+	for i := range list.Items {
+		p := &list.Items[i]
+		n := p.Spec.NodeName
+		if n == nodeName {
+			return p, nil
+		}
+		if len(nodeName) <= len(n) && n[:len(nodeName)] == nodeName {
+			if match != nil {
+				return nil, fmt.Errorf("multiple pods on nodes matching %q in namespace %s", nodeName, c.namespace)
+			}
+			match = p
+		}
+	}
+	if match != nil {
+		return match, nil
+	}
+	return nil, fmt.Errorf("no accelerboat pod on node %q in namespace %s (label %s)", nodeName, c.namespace, AccelerboatAppLabel)
+}
+
 func freeLocalPort() (int, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

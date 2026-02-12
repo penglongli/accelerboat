@@ -88,6 +88,7 @@ func (h *CustomHandler) Register(ginSvr *gin.Engine) {
 	ginSvr.Handle(http.MethodGet, apitypes.APIStats, h.HTTPWrapperWithOutput(h.Stats))
 	ginSvr.Handle(http.MethodGet, apitypes.APIMetrics, h.HTTPWrapperWithOutput(h.Metrics))
 	ginSvr.Handle(http.MethodGet, apitypes.APIConfig, h.HTTPWrapperWithOutput(h.Config))
+	ginSvr.Handle(http.MethodGet, apitypes.APIOCIImages, h.HTTPWrapperWithOutput(h.OCIImages))
 }
 
 // HTTPWrapperWithOutput wraps handlers for stats/metrics/config etc.: if query param output=json

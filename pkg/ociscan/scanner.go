@@ -17,13 +17,16 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/content"
 	"github.com/containerd/containerd/errdefs"
+	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -153,63 +156,105 @@ func (s *ScanHandler) handleContainerdCopy(ctx context.Context, layer string) (s
 	return result, nil
 }
 
-// CopyLayerToDestPath copy layer to dest path
-func (s *ScanHandler) CopyLayerToDestPath(ctx context.Context, ociType string, layerPath string,
-	destFile string) error {
-	// handle downloaded layer
-	if strings.HasPrefix(layerPath, s.op.StorageConfig.DownloadPath) {
-		if err := os.Rename(layerPath, destFile); err != nil {
-			return errors.Wrapf(err, "rename layer from '%s' to '%s' failed", layerPath, destFile)
-		}
-		return nil
-	}
-	if strings.HasPrefix(layerPath, s.op.StorageConfig.TransferPath) {
-		return nil
-	}
-	switch store.LayerType(ociType) {
-	case store.CONTAINERD:
-		if s.cc != nil {
-			if err := s.handleCopyContainerdLayer(ctx, layerPath, destFile); err != nil {
-				return errors.Wrapf(err, "copy containerd file from '%s to '%s' failed'", layerPath, destFile)
-			}
-			return nil
-		}
-		return errors.Errorf("copy containerd layer no handler")
-	default:
-		return errors.Errorf("layer path 'type(%s), file(%s)' is unknown", ociType, layerPath)
-	}
+// ImageLayerInfo holds digest, size and optional local path for an OCI image layer.
+type ImageLayerInfo struct {
+	Digest    string `json:"digest"`
+	Size      int64  `json:"size"`
+	LocalPath string `json:"localPath,omitempty"`
 }
 
-// handleCopyContainerdLayer handle containerd layer copy
-func (s *ScanHandler) handleCopyContainerdLayer(ctx context.Context, layer string, destFile string) error {
-	layer = "sha256:" + layer
-	layerDigest := digest.Digest(layer)
+// ImageInfo holds image name, target digest and layer list for a managed OCI image.
+type ImageInfo struct {
+	Name   string           `json:"name"`
+	Target string           `json:"target"`
+	Layers []ImageLayerInfo `json:"layers"`
+}
+
+// OCIPathLayerInfo holds digest, size and path for a layer file under OCIPath.
+type OCIPathLayerInfo struct {
+	Digest string `json:"digest"`
+	Size   int64  `json:"size"`
+	Path   string `json:"path"`
+}
+
+// ListManagedImages returns OCI images from containerd (if enabled) with each image's layer info.
+// ociPath is the directory to check for existing layer files (e.g. OCIPath); may be empty.
+func (s *ScanHandler) ListManagedImages(ctx context.Context, ociPath string) ([]ImageInfo, error) {
+	if s.cc == nil {
+		return nil, nil
+	}
 	nsCtx := namespaces.WithNamespace(ctx, "k8s.io")
-	_, err := s.cc.Client.ContentStore().Info(nsCtx, layerDigest)
+	client := s.cc.Client
+	cs := client.ContentStore()
+	platform := platforms.Default()
+
+	imageList, err := client.ListImages(nsCtx)
 	if err != nil {
-		if errdefs.IsNotFound(err) {
-			return errors.Wrapf(err, "containerd get layer '%s' not found", layerDigest)
+		return nil, errors.Wrap(err, "list containerd images failed")
+	}
+	// Build set of layer digests that have a file under ociPath (for LocalPath).
+	ociPathLayers := make(map[string]string)
+	if ociPath != "" {
+		_ = filepath.WalkDir(ociPath, func(entryPath string, de os.DirEntry, err error) error {
+			if err != nil || de.IsDir() || !strings.HasSuffix(de.Name(), ".tar.gzip") {
+				return nil
+			}
+			name := strings.TrimSuffix(de.Name(), ".tar.gzip")
+			d := "sha256:" + strings.TrimPrefix(name, "sha256:")
+			ociPathLayers[d] = entryPath
+			return nil
+		})
+	}
+
+	out := make([]ImageInfo, 0, len(imageList))
+	for _, img := range imageList {
+		target := img.Target()
+		manifest, err := images.Manifest(nsCtx, cs, target, platform)
+		if err != nil {
+			logger.WarnContextf(ctx, "get manifest for image %s failed: %s", img.Name(), err.Error())
+			continue
 		}
-		return errors.Wrapf(err, "containerd get layer info failed")
+		layers := make([]ImageLayerInfo, 0, len(manifest.Layers))
+		for _, desc := range manifest.Layers {
+			d := desc.Digest.String()
+			li := ImageLayerInfo{Digest: d, Size: desc.Size}
+			if p, ok := ociPathLayers[d]; ok {
+				li.LocalPath = p
+			}
+			layers = append(layers, li)
+		}
+		out = append(out, ImageInfo{
+			Name:   img.Name(),
+			Target: target.Digest.String(),
+			Layers: layers,
+		})
 	}
+	return out, nil
+}
 
-	ra, err := s.cc.Client.ContentStore().ReaderAt(nsCtx,
-		ocispec.Descriptor{Digest: digest.Digest(layer)})
-	if err != nil {
-		return errors.Wrapf(err, "containerd read digest failed")
+// ListOCIPathLayers returns layer files under ociPath with digest and size.
+func ListOCIPathLayers(ociPath string) ([]OCIPathLayerInfo, error) {
+	if ociPath == "" {
+		return nil, nil
 	}
-	defer ra.Close()
-	logger.InfoContextf(ctx, "layer-containerd read digest sucess")
-
-	reader := content.NewReader(ra)
-	_ = os.RemoveAll(destFile)
-	dstFile, err := os.Create(destFile)
+	var out []OCIPathLayerInfo
+	err := filepath.WalkDir(ociPath, func(entryPath string, de os.DirEntry, err error) error {
+		if err != nil || de.IsDir() || !strings.HasSuffix(de.Name(), ".tar.gzip") {
+			return nil
+		}
+		info, err := de.Info()
+		if err != nil {
+			return nil
+		}
+		name := strings.TrimSuffix(de.Name(), ".tar.gzip")
+		d := "sha256:" + strings.TrimPrefix(name, "sha256:")
+		out = append(out, OCIPathLayerInfo{Digest: d, Size: info.Size(), Path: entryPath})
+		return nil
+	})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer dstFile.Close()
-	_, err = io.Copy(dstFile, reader)
-	return err
+	return out, nil
 }
 
 // containerdChecker defines the containerd checker

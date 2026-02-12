@@ -306,7 +306,7 @@ func (h *CustomHandler) RecorderOutput(c *gin.Context) (interface{}, string, err
 	limit := recorderLimitFromQuery(c)
 	registry := strings.TrimSpace(c.Query("registry"))
 	search := strings.TrimSpace(c.Query("search"))
-	events := recorder.Global.List(limit)
+	events := recorder.Global.List(limit, []string{search}, nil)
 	if events == nil {
 		events = []recorder.Event{}
 	}
@@ -328,7 +328,7 @@ func (h *CustomHandler) recorderStream(c *gin.Context) {
 	registryFilter := strings.TrimSpace(c.Query("registry"))
 	searchFilter := strings.TrimSpace(c.Query("search"))
 
-	events := recorder.Global.List(limit)
+	events := recorder.Global.List(limit, []string{searchFilter}, nil)
 	if events == nil {
 		events = []recorder.Event{}
 	}

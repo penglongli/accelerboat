@@ -348,7 +348,7 @@ var downloadSem = make(chan struct{}, 20)
 
 func (p *upstreamProxy) downloadLayerFromLocalLimit(ctx context.Context, digest string, req *http.Request,
 	rw http.ResponseWriter) bool {
-	logger.InfoContextf(ctx, "download layer from local waiting limit lock")
+	logger.V(3).InfoContextf(ctx, "download layer from local waiting limit lock")
 	select {
 	case downloadSem <- struct{}{}:
 		defer func() { <-downloadSem }()
@@ -361,7 +361,7 @@ func (p *upstreamProxy) downloadLayerFromLocal(ctx context.Context, digest strin
 	rw http.ResponseWriter) bool {
 	layerFileInfo, layerPath := p.checkLocalLayer(digest)
 	if layerFileInfo == nil {
-		logger.WarnContextf(ctx, "not found digest '%s' in local", digest)
+		logger.V(3).WarnContextf(ctx, "not found digest '%s' in local", digest)
 		return false
 	}
 	logger.InfoContextf(ctx, "download layer from local starting")
