@@ -5,5 +5,5 @@ dependencies:
 - name: squid
   repository: file://charts/squid
   version: 0.1.0
-digest: sha256:3bff814cda1dc73be8959f9986ed9ad40fa85af956998df4028d84876479a8f6
-generated: "2026-01-20T19:25:38.501676+08:00"
+digest: sha256:090850e4241e30a5110511b62e2ce4091f912dd440d3e87fadac344e054d6b08
+generated: "2026-02-20T20:57:27.686904+08:00"
