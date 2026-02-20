@@ -1,0 +1,23 @@
+apiVersion: v1
+entries:
+  accelerboat:
+  - apiVersion: v2
+    appVersion: 1.16.0
+    created: "2026-02-20T21:01:07.192176+08:00"
+    dependencies:
+    - condition: redis.enabled
+      name: redis
+      repository: file://charts/redis
+      version: 21.2.13
+    - condition: squid.enabled
+      name: squid
+      repository: file://charts/squid
+      version: 0.1.0
+    description: A Helm chart for Kubernetes
+    digest: f9c4d99e9705f11a57cec70122e359518a746768c2b1667b88435901267979a1
+    name: accelerboat
+    type: application
+    urls:
+    - accelerboat-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-02-20T21:01:07.18022+08:00"
