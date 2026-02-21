@@ -27,5 +27,6 @@ build-cli:
 build-image:
 	mkdir -p ${PACKAGEPATH}
 	go mod tidy && go mod vendor && go build -o ${PACKAGEPATH}/accelerboat ./cmd/accelerboat/main.go
+	upx -9 ${PACKAGEPATH}/accelerboat
 	cp Dockerfile ${PACKAGEPATH}/
 	cd ${PACKAGEPATH} && docker build -t accelerboat:latest .

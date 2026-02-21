@@ -20,11 +20,19 @@ AccelerBoat 是一个 OCI 镜像加速器，可以加速整个局域网内的镜
 
 > 注：镜像加速是为了做镜像拉取的速度加快，并不能代替国内到海外公网 Registry 网络的加速
 
-## 原理详解
+## 架构概述
 
 参考 [基础架构与原理](./docs/0-architecture_zh.md) 获取 AccelerBoat 的详细实现
 
+![arch](./docs/images/arch-0-summary.png)
+
 ## 入门使用
 
+### 如何安装
+Add custom helm repo to local, and pull chart of AccelerBoat
 
+```bash
+helm repo add accelerboat https://penglongli.github.io/accelerboat
+helm pull accelerboat/accelerboat
+```
 
